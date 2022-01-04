@@ -1,3 +1,7 @@
+/* main.cpp
+04.01.2021
+shmex */
+
 #include <Arduino.h>
 #include <Arduino_MKRENV.h>
 
