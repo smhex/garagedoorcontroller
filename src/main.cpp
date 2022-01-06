@@ -1,9 +1,26 @@
-/* main.cpp
-04.01.2021
-shmex */
+/* 
+* File:   main.cpp
+* Date:   04.01.2021
+* Author: smhex
+*/
 
+// Include libraries
 #include <Arduino.h>
 #include <Arduino_MKRENV.h>
+#include <ArduinoMqttClient.h>
+#include <SPI.h>
+#include <Ethernet.h>
+
+// MAC address from shield
+byte mac[] = {
+  0xDE, 0xAD, 0xBE, 0xEF, 0xFE, 0xED
+};
+
+// Network configuration
+IPAddress ip(192, 168, 40, 19);
+IPAddress dns(192, 168, 40, 1);
+IPAddress subnet(255, 255, 255, 0);
+IPAddress gateway(192, 168, 40, 1);
 
 // setup the board an all variables
 void setup() {
@@ -12,11 +29,34 @@ void setup() {
   Serial.begin(9600);
   while (!Serial);
 
-  // check if MKR ENV shield is install/present
+  // check if all the hardware is installed/present
+  // start with MKR ENV shield
   if (!ENV.begin()) {
-    Serial.println("Failed to initialize MKR ENV shield!");
+    Serial.println("ERROR: Failed to initialize MKR ENV shield");
     while (1);
   }
+
+  // check MKR ETH shield / connection
+  Ethernet.begin(mac, ip, dns, gateway, subnet);
+
+  // Check for Ethernet hardware present
+  if (Ethernet.hardwareStatus() == EthernetNoHardware) {
+    Serial.println("ERROR: Ethernet shield was not found");
+    while (true) {
+      delay(1); 
+    }
+  }
+  else{
+    Serial.print("INIT: Ethernet chipset is ");
+    Serial.println(Ethernet.hardwareStatus());
+
+  }
+  if (Ethernet.linkStatus() == LinkOFF) {
+    Serial.println("ERROR: Ethernet cable is not connected");
+  }
+
+  Serial.print("INIT: Controller network interface is at ");
+  Serial.println(Ethernet.localIP());
 }
 
 // main loop - reads/writes commands and sensor values
