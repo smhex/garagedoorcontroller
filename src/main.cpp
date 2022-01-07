@@ -4,10 +4,11 @@
 * Author: smhex
 */
 
+
 // Include libraries
 #include <Arduino.h>
 #include <Arduino_MKRENV.h>
-#include <ArduinoMqttClient.h>
+#include <MQTTPubSubClient.h>
 #include <SPI.h>
 #include <Ethernet.h>
 
@@ -21,6 +22,10 @@ IPAddress ip(192, 168, 40, 19);
 IPAddress dns(192, 168, 40, 1);
 IPAddress subnet(255, 255, 255, 0);
 IPAddress gateway(192, 168, 40, 1);
+EthernetClient client;
+
+// MQTT broker/topic configuration
+
 
 // setup the board an all variables
 void setup() {
@@ -28,6 +33,13 @@ void setup() {
   // Init serial line with 9600 baud
   Serial.begin(9600);
   while (!Serial);
+
+  // Initial delay to get the serial monitor attached after port is availabe for host
+  delay(2000);
+  
+  // This should be the first line in the serial log
+  Serial.println("INIT: Starting...");
+  Serial.println ("INIT: Sketch built on " __DATE__ " at " __TIME__);
 
   // check if all the hardware is installed/present
   // start with MKR ENV shield
