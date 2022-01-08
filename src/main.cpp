@@ -7,25 +7,41 @@
 
 // Include libraries
 #include <Arduino.h>
+#include <ArduinoJson.h>
 #include <Arduino_MKRENV.h>
 #include <MQTTPubSubClient.h>
 #include <SPI.h>
 #include <Ethernet.h>
 #include <WDTZero.h>
 
-// MAC address from shield
-byte mac[] = {
-  0xDE, 0xAD, 0xBE, 0xEF, 0xFE, 0xED
-};
+// global settings
+String application = "GarageDoorController";
+String version = "0.0.2";
+String author = "smhex";
 
-// Network configuration
+// global buffer for dealing with json packets
+StaticJsonDocument<128> jsonDoc;
+char jsonBuffer[128];
+
+// Network configuration - sets MAC and IP address
+byte mac[] = {0xDE, 0xAD, 0xBE, 0xEF, 0xFE, 0xED};
 IPAddress ip(192, 168, 30, 241);
 IPAddress dns(192, 168, 30, 1);
 IPAddress subnet(255, 255, 255, 0);
 IPAddress gateway(192, 168, 30, 1);
-EthernetClient client;
+EthernetClient ethClient;
 
 // MQTT broker/topic configuration
+MQTTPubSubClient mqttClient;
+const char mqttBrokerAddress[] = "mosquitto.debes-online.com";
+const unsigned int mqttBrokerPort = 1883;
+String mqttClientID = "arduino-gdc";
+String mqttUsername = "mosquitto";
+String mqttPassword = "mosquitto";
+String mqttTopicUptime = "gdc/system/uptime";
+String mqttTopicInfo = "gdc/system/info";
+String mqttTopicStatus = "gdc/system/status";
+String mqttLastWillMsg = "offline";
 
 // Watchdog
 WDTZero watchdog;   
@@ -33,8 +49,13 @@ WDTZero watchdog;
 // Heartbeat counter
 static unsigned long uptime_in_sec = 0;
 static unsigned long last_milliseconds;  
+int ledState = LOW;
+
 
 // Forward declarations
+void display_init();
+void mqtt_init();
+void mqtt_loop();
 void watchdog_handler();
 
 // setup the board an all variables
@@ -44,7 +65,7 @@ void setup() {
   Serial.begin(9600);
   while (!Serial);
 
-   // initialize digital pin LED_BUILTIN as an output.
+  // initialize digital pin LED_BUILTIN as an output.
   pinMode(LED_BUILTIN, OUTPUT);
   last_milliseconds = millis();
 
@@ -88,48 +109,118 @@ void setup() {
 
   Serial.print("INIT: Controller network interface is at ");
   Serial.println(Ethernet.localIP());
+
+  // Initialize display
+  display_init();
+
+  // Initialize MQTT client
+  mqtt_init();
 }
 
 // main loop - reads/writes commands and sensor values
 void loop() {
   // read all the sensor values
+  /*
   float temperature = ENV.readTemperature();
   float humidity    = ENV.readHumidity();
   float pressure    = ENV.readPressure();
   float illuminance = ENV.readIlluminance();  
+  */
 
-  // print each of the sensor values
-  Serial.print("Temperature = ");
-  Serial.print(temperature);
-  Serial.println(" °C");
-
-  Serial.print("Humidity    = ");
-  Serial.print(humidity);
-  Serial.println(" %");
-
-  Serial.print("Pressure    = ");
-  Serial.print(pressure);
-  Serial.println(" kPa");
-
-  Serial.print("Illuminance = ");
-  Serial.print(illuminance);
-  Serial.println(" lx");
-
-  // print an empty line
-  Serial.println();
-
-  digitalWrite(LED_BUILTIN, HIGH);   // turn the LED on (HIGH is the voltage level)
-  delay(1000);                       // wait for a second
-  digitalWrite(LED_BUILTIN, LOW);    // turn the LED off by making the voltage LOW
-  delay(1000);                       // wait for a second
-
-  // calculate uptime
+  // calculate uptime in seconds
   uptime_in_sec = (millis()-last_milliseconds)/1000;
-  Serial.print("RUN: Uptime ");
-  Serial.println(uptime_in_sec);
+  
+  // led the inbuilt led blink as a heartbeat
+  static uint32_t prev_ms = millis();
+  if (millis() > prev_ms + 1000) {
+
+    // if the LED is off turn it on and vice-versa
+    if (ledState == LOW) {
+      ledState = HIGH;
+    } else {
+      ledState = LOW;
+    }
+    prev_ms = millis();
+    digitalWrite(LED_BUILTIN, ledState);
+  }
+
+  // Update mqtt
+  mqtt_loop();
 
   // Trigger watchdog
   watchdog.clear();
+}
+
+/*
+* Initializes the display and its buttons. After bootup the application informaton is
+* shown as a splashscreen for 5 secons.
+*/
+void display_init()
+{
+}
+
+/*
+* Creates the connection to the MQTT broker and performs the authentificaton. The 
+* topics will be initially published and the subscriptions will created
+*/
+void mqtt_init()
+{
+  // set mqtt client options
+  mqttClient.setKeepAliveTimeout(60);
+  mqttClient.setCleanSession(true);
+  mqttClient.setWill(mqttTopicStatus, mqttLastWillMsg, true, 0);
+  
+  // Connect to the broker
+  Serial.print("INIT: Connecting mqtt broker...");
+  while (!ethClient.connect(mqttBrokerAddress, mqttBrokerPort)) {
+      Serial.print(".");
+      delay(1000);
+  }
+  Serial.println(" success");
+
+  // Authenticate the client
+  mqttClient.begin(ethClient);
+  Serial.print("INIT: Logging into mqtt broker...");
+  while (!mqttClient.connect(mqttClientID, mqttUsername, mqttPassword)) {
+      Serial.print(".");
+      delay(1000);
+  }
+  Serial.println(" success");
+
+  // prepare json payload for info topic
+  jsonDoc["application"] = application;
+  jsonDoc["version"] = version;
+  jsonDoc["author"] = author;
+
+  // serialize json document into global buffer and publish
+  // attention: size of buffer is limited to 256 bytes
+  serializeJson(jsonDoc, jsonBuffer);
+  mqttClient.publish(mqttTopicInfo, jsonBuffer, true, 0);
+}
+
+/*
+ * This function is manages the mqtt connection and publishes the uptime every sec.
+ */
+void mqtt_loop()
+{
+  // if connection to the broker is lost, try to reconnect
+  if (!mqttClient.isConnected()){
+    Serial.println("RUN: Lost connection to mqtt broker. Trying to reconnect");
+    mqtt_init();
+  }
+  else{
+    mqttClient.update();
+  }
+
+  // publish uptime message every 1s
+  static uint32_t prev_ms = millis();
+  char buffer[12];
+  sprintf(buffer,"%lu", uptime_in_sec);
+  if (millis() > prev_ms + 1000) {
+      prev_ms = millis();
+      mqttClient.publish(mqttTopicUptime, buffer);
+      mqttClient.publish(mqttTopicStatus, "online", true, 0);
+    }
 }
 
 /*
