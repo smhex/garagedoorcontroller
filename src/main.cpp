@@ -4,13 +4,13 @@
 * Author: smhex
 */
 
-
 // Include libraries
 #include <Arduino.h>
 #include <Arduino_MKRENV.h>
 #include <MQTTPubSubClient.h>
 #include <SPI.h>
 #include <Ethernet.h>
+#include <WDTZero.h>
 
 // MAC address from shield
 byte mac[] = {
@@ -18,14 +18,23 @@ byte mac[] = {
 };
 
 // Network configuration
-IPAddress ip(192, 168, 40, 19);
-IPAddress dns(192, 168, 40, 1);
+IPAddress ip(192, 168, 30, 241);
+IPAddress dns(192, 168, 30, 1);
 IPAddress subnet(255, 255, 255, 0);
-IPAddress gateway(192, 168, 40, 1);
+IPAddress gateway(192, 168, 30, 1);
 EthernetClient client;
 
 // MQTT broker/topic configuration
 
+// Watchdog
+WDTZero watchdog;   
+
+// Heartbeat counter
+static unsigned long uptime_in_sec = 0;
+static unsigned long last_milliseconds;  
+
+// Forward declarations
+void watchdog_handler();
 
 // setup the board an all variables
 void setup() {
@@ -34,9 +43,17 @@ void setup() {
   Serial.begin(9600);
   while (!Serial);
 
+   // initialize digital pin LED_BUILTIN as an output.
+  pinMode(LED_BUILTIN, OUTPUT);
+  last_milliseconds = millis();
+
   // Initial delay to get the serial monitor attached after port is availabe for host
-  delay(2000);
-  
+  delay(1000);
+
+  // setup watchdog 16s interval
+  watchdog.attachShutdown(watchdog_handler);
+  watchdog.setup(WDT_SOFTCYCLE16S);
+
   // This should be the first line in the serial log
   Serial.println("INIT: Starting...");
   Serial.println ("INIT: Sketch built on " __DATE__ " at " __TIME__);
@@ -49,6 +66,7 @@ void setup() {
   }
 
   // check MKR ETH shield / connection
+  // interface uses a fully configured static ip
   Ethernet.begin(mac, ip, dns, gateway, subnet);
 
   // Check for Ethernet hardware present
@@ -59,7 +77,7 @@ void setup() {
     }
   }
   else{
-    Serial.print("INIT: Ethernet chipset is ");
+    Serial.print("INIT: Ethernet chipset type is ");
     Serial.println(Ethernet.hardwareStatus());
 
   }
@@ -77,10 +95,7 @@ void loop() {
   float temperature = ENV.readTemperature();
   float humidity    = ENV.readHumidity();
   float pressure    = ENV.readPressure();
-  float illuminance = ENV.readIlluminance();
-  float uva         = ENV.readUVA();
-  float uvb         = ENV.readUVB();
-  float uvIndex     = ENV.readUVIndex();     
+  float illuminance = ENV.readIlluminance();  
 
   // print each of the sensor values
   Serial.print("Temperature = ");
@@ -99,18 +114,28 @@ void loop() {
   Serial.print(illuminance);
   Serial.println(" lx");
 
-  Serial.print("UVA         = ");
-  Serial.println(uva);
-
-  Serial.print("UVB         = ");
-  Serial.println(uvb);
-
-  Serial.print("UV Index    = ");
-  Serial.println(uvIndex);
-
   // print an empty line
   Serial.println();
 
-  // wait 1 second to print again
-  delay(1000);
+  digitalWrite(LED_BUILTIN, HIGH);   // turn the LED on (HIGH is the voltage level)
+  delay(1000);                       // wait for a second
+  digitalWrite(LED_BUILTIN, LOW);    // turn the LED off by making the voltage LOW
+  delay(1000);                       // wait for a second
+
+  // calculate uptime
+  uptime_in_sec = (millis()-last_milliseconds)/1000;
+  Serial.print("RUN: Uptime ");
+  Serial.println(uptime_in_sec);
+
+  // Trigger watchdog
+  watchdog.clear();
+}
+
+/*
+ * This function is called of the watchdog is not cleared. This usally happens if
+ * the processor is stalled.
+ */
+void watchdog_handler()
+{
+  Serial.print("\nERROR: watchdog not cleared. Controller reboot initiated");
 }
