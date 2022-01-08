@@ -1,7 +1,8 @@
 /* 
-* File:   main.cpp
-* Date:   04.01.2021
-* Author: smhex
+* File:     main.cpp
+* Date:     04.01.2021
+* Version:  v0.0.2
+* Author:   smhex
 */
 
 // Include libraries
