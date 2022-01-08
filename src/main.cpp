@@ -14,6 +14,9 @@
 #include <Ethernet.h>
 #include <WDTZero.h>
 
+#include "display.h"
+#include "util.h"
+
 // global settings
 String application = "GarageDoorController";
 String version = "0.0.2";
@@ -51,9 +54,7 @@ static unsigned long uptime_in_sec = 0;
 static unsigned long last_milliseconds;  
 int ledState = LOW;
 
-
 // Forward declarations
-void display_init();
 void mqtt_init();
 void mqtt_loop();
 void watchdog_handler();
@@ -65,6 +66,10 @@ void setup() {
   Serial.begin(9600);
   while (!Serial);
 
+  // Initialize display
+  display_init();
+  display_splashscreen(application, version, author, "Loading...");
+
   // initialize digital pin LED_BUILTIN as an output.
   pinMode(LED_BUILTIN, OUTPUT);
   last_milliseconds = millis();
@@ -74,7 +79,7 @@ void setup() {
 
   // setup watchdog 16s interval
   watchdog.attachShutdown(watchdog_handler);
-  watchdog.setup(WDT_SOFTCYCLE16S);
+  //watchdog.setup(WDT_SOFTCYCLE16S);
 
   // This should be the first line in the serial log
   Serial.println("INIT: Starting...");
@@ -110,11 +115,12 @@ void setup() {
   Serial.print("INIT: Controller network interface is at ");
   Serial.println(Ethernet.localIP());
 
-  // Initialize display
-  display_init();
+  // show IP addess on display
+  display_splashscreen(application, version, author, IPAddressToString(Ethernet.localIP()));
+
 
   // Initialize MQTT client
-  mqtt_init();
+  //mqtt_init();
 }
 
 // main loop - reads/writes commands and sensor values
@@ -145,18 +151,10 @@ void loop() {
   }
 
   // Update mqtt
-  mqtt_loop();
+  //mqtt_loop();
 
   // Trigger watchdog
   watchdog.clear();
-}
-
-/*
-* Initializes the display and its buttons. After bootup the application informaton is
-* shown as a splashscreen for 5 secons.
-*/
-void display_init()
-{
 }
 
 /*
