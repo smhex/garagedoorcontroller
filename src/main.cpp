@@ -1,7 +1,7 @@
 /* 
 * File:     main.cpp
 * Date:     09.01.2021
-* Version:  v0.0.3
+* Version:  v0.0.4
 * Author:   smhex
 */
 
@@ -28,7 +28,7 @@ EthernetClient ethClient;
 
 // global settings
 String application = "GarageDoorController";
-String version = "0.0.3";
+String version = "0.0.4";
 String author = "smhex";
 
 // Heartbeat counter
