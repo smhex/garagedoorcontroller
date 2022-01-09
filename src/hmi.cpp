@@ -23,7 +23,7 @@ const unsigned int displayHeight = 64;
 * Initializes the display and its buttons. After bootup the application informaton is
 * shown as a splashscreen for 5 secons.
 */
-void display_init()
+void hmi_init()
 {
     // initialize display and mcp23008 chip
     u8g2.begin();
@@ -49,7 +49,7 @@ void display_init()
 /*
 * Shows the splashscreen using the application information
 */
-void display_splashscreen(String status)
+void hmi_display_splashscreen(String status)
 {
     u8g2.clearBuffer();
     u8g2.setFont(u8g2_font_6x10_tf);
@@ -67,7 +67,7 @@ void display_splashscreen(String status)
 /*
 * Clears display buffer -> switch off
 */
-void display_off()
+void hmi_display_off()
 {
     u8g2.clearBuffer();
     u8g2.sendBuffer();
@@ -76,7 +76,7 @@ void display_off()
 /*
 * Clears display buffer -> switch off
 */
-void display_text(String text)
+void hmi_display_text(String text)
 {
     u8g2.clearBuffer();
     u8g2.setFont(u8g2_font_6x10_tf);
@@ -94,14 +94,14 @@ void display_text(String text)
 /*
 * Checks for button press
 */
-void display_loop()
+void hmi_loop()
 {
     //Serial.println("Display Loop");
     // button s1 pressed?
     if (mcp.digitalRead(2) == 0)
     {
         mcp.digitalWrite(6, HIGH); //switch led D1 on
-        display_text("Button 1 pressed");
+        hmi_display_text("Button 1 pressed");
         delay(1000);
     }
     else

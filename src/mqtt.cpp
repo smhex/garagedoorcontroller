@@ -43,7 +43,7 @@ String statusDoorUnknown = "unknown";
 // list of command sources
 String commandSourceRemote = "remote";
 String commandSourceLocal = "local";
-String comanndSourceRC = "rc";
+String commandSourceRC = "rc";
 
 // global buffer for dealing with json packets
 StaticJsonDocument<128> jsonDoc;
@@ -92,21 +92,21 @@ void mqtt_init()
     // attention: size of buffer is limited to 256 bytes
     serializeJson(jsonDoc, jsonBuffer);
     mqttClient.publish(mqttTopicSystemInfo, jsonBuffer, true, 0);
-    mqttClient.publish(mqttTopicControlSetNewDoorState, commandDoorOpen);
-    mqttClient.publish(mqttTopicControlGetNewDoorState, statusDoorOpen);
-    mqttClient.publish(mqttTopicControlGetCurrentDoorState, statusDoorOpen);
+    mqttClient.publish(mqttTopicControlSetNewDoorState, commandDoorOpen, false, 0);
+    mqttClient.publish(mqttTopicControlGetNewDoorState, statusDoorOpen, false, 0);
+    mqttClient.publish(mqttTopicControlGetCurrentDoorState, statusDoorOpen, false, 0);
 
     // Subscribe command topic
     mqttClient.subscribe(mqttTopicControlSetNewDoorState, &onTopicControlSetNewDoorStateReceived);
 }
 
 /*
- * This handler is called when a subscribed topic is received.
+ * This handler is called when a subscribed topic (the command) is received.
  */
 void onTopicControlSetNewDoorStateReceived(const String &payload, const size_t size)
 {
 
-    // Copy command topic back
+    // Copy command topic back if payload is valid
     if
         (!(payload == commandDoorOpen || payload == commandDoorClose))
         {
@@ -122,12 +122,13 @@ void onTopicControlSetNewDoorStateReceived(const String &payload, const size_t s
 }
 
 /*
- * This function publishes a topic.
+ * This function publishes a topic. It passes the parameters without change to the
+ * underlying mqtt client but adds a serial print for logging purposes
  */
 void mqtt_publish(String topic, String payload)
 {
     Serial.println("RUN: send: set " + topic + " to " + payload);
-    mqttClient.publish(topic, payload);
+    mqttClient.publish(topic, payload, false, 0);
 }
 
 /*

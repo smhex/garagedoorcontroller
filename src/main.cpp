@@ -1,21 +1,22 @@
 /* 
 * File:     main.cpp
-* Date:     04.01.2021
+* Date:     09.01.2021
 * Version:  v0.0.3
 * Author:   smhex
 */
 
 // Include libraries
 #include <Arduino.h>
-#include <Arduino_MKRENV.h>
+
 #include <SPI.h>
 #include <Ethernet.h>
 #include <WDTZero.h>
 
 // Include local libraries/headers
-#include "display.h"
+#include "hmi.h"
 #include "util.h"
 #include "mqtt.h"
+#include "sensors.h"
 
 // Network configuration - sets MAC and IP address
 byte mac[] = {0xDE, 0xAD, 0xBE, 0xEF, 0xFE, 0xED};
@@ -40,7 +41,9 @@ static unsigned long last_milliseconds;
 int ledState = LOW;
 
 // Forward declarations
-void watchdog_handler();
+void watchdog_init();
+void watchdog_reset();
+void watchdog_onShutdown();
 
 // setup the board an all variables
 void setup()
@@ -51,20 +54,17 @@ void setup()
   while (!Serial)
     ;
 
-  // Initialize display
-  display_init();
-  display_splashscreen("Loading...");
+  // setup watchdog
+  watchdog_init();
 
-  // initialize digital pin LED_BUILTIN as an output.
-  pinMode(LED_BUILTIN, OUTPUT);
+  // Initialize display
+  hmi_init();
+  hmi_display_splashscreen("Loading...");
+
   last_milliseconds = millis();
 
   // Initial delay to get the serial monitor attached after port is availabe for host
   delay(1000);
-
-  // setup watchdog 16s interval
-  watchdog.attachShutdown(watchdog_handler);
-  watchdog.setup(WDT_SOFTCYCLE16S);
 
   // This should be the first line in the serial log
   Serial.println("INIT: Starting...");
@@ -72,12 +72,7 @@ void setup()
 
   // check if all the hardware is installed/present
   // start with MKR ENV shield
-  if (!ENV.begin())
-  {
-    Serial.println("ERROR: Failed to initialize MKR ENV shield");
-    while (1)
-      ;
-  }
+  sensors_init();
 
   // check MKR ETH shield / connection
   // interface uses a fully configured static ip
@@ -106,7 +101,7 @@ void setup()
   Serial.println(Ethernet.localIP());
 
   // show IP addess on display
-  display_splashscreen(IPAddressToString(Ethernet.localIP()));
+  hmi_display_splashscreen(IPAddressToString(Ethernet.localIP()));
 
   // Initialize MQTT client
   mqtt_init();
@@ -116,51 +111,59 @@ void setup()
 void loop()
 {
 
-  //Serial.println("main Loop");
-  // read all the sensor values
-  /*
-  float temperature = ENV.readTemperature();
-  float humidity    = ENV.readHumidity();
-  float pressure    = ENV.readPressure();
-  float illuminance = ENV.readIlluminance();  
-  */
-
   // calculate uptime in seconds
   uptime_in_sec = (millis() - last_milliseconds) / 1000;
+
+  /*    float temp = sensors_get_temperature();
+  char buffer[12];
+  sprintf(buffer, "%f", temp);
+  mqtt_publish("gdc/system/sensors/temperature", buffer);*/
+
+  // loop over all modules
+  hmi_loop();
+  mqtt_loop();
+  sensors_loop();
+
+  // trigger the watchdog
+  watchdog_reset();
+}
+
+/*
+ * This function needs to be called to initialize the watchdog.
+ */
+void watchdog_init()
+{
+  // initialize digital pin LED_BUILTIN as an output.
+  pinMode(LED_BUILTIN, OUTPUT);
+
+  watchdog.attachShutdown(watchdog_onShutdown);
+  watchdog.setup(WDT_SOFTCYCLE16S);
+}
+
+/*
+ * This function needs to be called to reset the watchdog.
+ */
+void watchdog_reset()
+{
+  // clear the watchdog
+  watchdog.clear();
 
   // led the inbuilt led blink as a heartbeat
   static uint32_t prev_ms = millis();
   if (millis() > prev_ms + 1000)
   {
-
     // if the LED is off turn it on and vice-versa
-    if (ledState == LOW)
-    {
-      ledState = HIGH;
-    }
-    else
-    {
-      ledState = LOW;
-    }
+    ledState = (ledState == LOW) ? HIGH : LOW;
     prev_ms = millis();
     digitalWrite(LED_BUILTIN, ledState);
   }
-
-  // Update display and button state
-  display_loop();
-
-  // Update mqtt
-  mqtt_loop();
-
-  // Trigger watchdog
-  watchdog.clear();
 }
 
 /*
  * This function is called of the watchdog is not cleared. This usally happens if
  * the processor is stalled.
  */
-void watchdog_handler()
+void watchdog_onShutdown()
 {
   Serial.print("\nERROR: watchdog not cleared. Controller reboot initiated");
 }
