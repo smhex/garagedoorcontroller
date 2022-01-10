@@ -1,7 +1,7 @@
 /* 
 * File:     main.cpp
 * Date:     09.01.2021
-* Version:  v0.0.4
+* Version:  v0.0.5
 * Author:   smhex
 */
 
@@ -11,8 +11,10 @@
 #include <SPI.h>
 #include <Ethernet.h>
 #include <WDTZero.h>
+#include <ArduinoJson.h>
 
 // Include local libraries/headers
+#include "driveio.h"
 #include "hmi.h"
 #include "util.h"
 #include "mqtt.h"
@@ -28,11 +30,14 @@ EthernetClient ethClient;
 
 // global settings
 String application = "GarageDoorController";
-String version = "0.0.4";
+String version = "0.0.5";
 String author = "smhex";
+
+// global buffer for dealing with json packets
 
 // Heartbeat counter
 unsigned long uptime_in_sec = 0;
+bool mainFirstRun = true;
 
 // Watchdog
 WDTZero watchdog;
@@ -40,10 +45,18 @@ WDTZero watchdog;
 static unsigned long last_milliseconds;
 int ledState = LOW;
 
+// maintain door status
+int oldDoorStatus = 0;
+int newDoorStatus = 0;
+
+// maintain door command
+int lastCommand = 0;
+
 // Forward declarations
 void watchdog_init();
 void watchdog_reset();
 void watchdog_onShutdown();
+void publish_sensor_values();
 
 // setup the board an all variables
 void setup()
@@ -61,6 +74,7 @@ void setup()
   hmi_init();
   hmi_display_splashscreen("Loading...");
 
+  // store offset for uptime counter
   last_milliseconds = millis();
 
   // Initial delay to get the serial monitor attached after port is availabe for host
@@ -73,6 +87,9 @@ void setup()
   // check if all the hardware is installed/present
   // start with MKR ENV shield
   sensors_init();
+
+  // init baseboard
+  driveio_init();
 
   // check MKR ETH shield / connection
   // interface uses a fully configured static ip
@@ -110,22 +127,84 @@ void setup()
 // main loop - reads/writes commands and sensor values
 void loop()
 {
-
   // calculate uptime in seconds
   uptime_in_sec = (millis() - last_milliseconds) / 1000;
 
-  /*    float temp = sensors_get_temperature();
-  char buffer[12];
-  sprintf(buffer, "%f", temp);
-  mqtt_publish("gdc/system/sensors/temperature", buffer);*/
-
   // loop over all modules
+  driveio_loop();
   hmi_loop();
-  mqtt_loop();
   sensors_loop();
+  mqtt_loop();
+
+  // gets the current sensor values and sends them via mqtt
+  publish_sensor_values();
 
   // trigger the watchdog
   watchdog_reset();
+
+  // check if door state was changed
+  if (driveio_doorstatuschanged(&oldDoorStatus, &newDoorStatus)){
+      char buffer[80];
+      sprintf(buffer, "RUN: current status %d changed to new status %d", oldDoorStatus, newDoorStatus);
+      Serial.println(buffer);
+      if (newDoorStatus==DOORSTATUSOPEN){
+          mqtt_publish(MQTT_TOPICCONTROLGETCURRENTDOORSTATE, MQTT_STATUSDOOROPEN);
+          mqtt_publish(MQTT_TOPICCONTROLGETNEWDOORSTATE, MQTT_STATUSDOOROPEN);
+      }
+     if (newDoorStatus==DOORSTATUSCLOSED){
+          mqtt_publish(MQTT_TOPICCONTROLGETCURRENTDOORSTATE, MQTT_STATUSDOORCLOSED);
+          mqtt_publish(MQTT_TOPICCONTROLGETNEWDOORSTATE, MQTT_STATUSDOORCLOSED);
+      }
+  }
+
+  // check for user command (button press on HMI)
+  int buttonPressed = hmi_getbuttonpressed();
+  if (buttonPressed!=HMI_BUTTON_NONE){
+      lastCommand = buttonPressed;
+      if (buttonPressed==HMI_BUTTON_OPENDOOR){
+         mqtt_publish(MQTT_TOPICCONTROLSETNEWDOORSTATE, MQTT_COMMANDDOOROPEN);
+      }
+      if (buttonPressed==HMI_BUTTON_CLOSEDOOR){
+        mqtt_publish(MQTT_TOPICCONTROLSETNEWDOORSTATE, MQTT_COMMANDDOORCLOSE);
+      }
+  }
+
+  mainFirstRun = false;
+}
+
+/*
+ * Gets all the sensor values and publishes them as json string
+ */
+void publish_sensor_values()
+{
+  if (timespan_ten_seconds() | mainFirstRun)
+  {
+    // json document
+    DynamicJsonDocument jsonSensorValuesDoc(256);
+    char jsonSensorValuesBuffer[256];
+
+    JsonObject sensorTemperature = jsonSensorValuesDoc.createNestedObject("temperature");
+    sensorTemperature["value"] = toString(sensors_get_temperature(), 1);
+    sensorTemperature["unit"] = "°C";
+
+    JsonObject sensorHumidity = jsonSensorValuesDoc.createNestedObject("humidity");
+    sensorHumidity["value"] = toString(sensors_get_humidity());
+    sensorHumidity["unit"] = "%";
+
+    JsonObject sensorPressure = jsonSensorValuesDoc.createNestedObject("pressure");
+    sensorPressure["value"] = toString(sensors_get_pressure());
+    sensorPressure["unit"] = "kPa";
+
+    JsonObject sensorIlluminance = jsonSensorValuesDoc.createNestedObject("illuminance");
+    sensorIlluminance["value"] = toString(sensors_get_illuminance());
+    sensorIlluminance["unit"] = "lx";
+
+    // prepare json payload for sensors topic
+    // serialize json document into global buffer and publish
+    // attention: size of buffer is limited to 256 bytes
+    serializeJson(jsonSensorValuesDoc, jsonSensorValuesBuffer);
+    mqtt_publish("gdc/system/sensors", jsonSensorValuesBuffer);
+  }
 }
 
 /*
@@ -136,6 +215,7 @@ void watchdog_init()
   // initialize digital pin LED_BUILTIN as an output.
   pinMode(LED_BUILTIN, OUTPUT);
 
+  // attach own handler which is called if watchdog is not triggered anymore
   watchdog.attachShutdown(watchdog_onShutdown);
   watchdog.setup(WDT_SOFTCYCLE16S);
 }
@@ -148,13 +228,10 @@ void watchdog_reset()
   // clear the watchdog
   watchdog.clear();
 
-  // led the inbuilt led blink as a heartbeat
-  static uint32_t prev_ms = millis();
-  if (millis() > prev_ms + 1000)
+  // led the inbuilt led blink as a heartbeat with 1Hz frequency
+  if (timespan_one_second())
   {
-    // if the LED is off turn it on and vice-versa
     ledState = (ledState == LOW) ? HIGH : LOW;
-    prev_ms = millis();
     digitalWrite(LED_BUILTIN, ledState);
   }
 }

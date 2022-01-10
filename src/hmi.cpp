@@ -3,6 +3,15 @@
 #include <Wire.h>
 #include <Adafruit_MCP23008.h>
 
+#include "hmi.h"
+
+// internal defines
+#define BUTTONSTATUS_PRESSED  0     // inputs use internal pullup's
+
+// button states
+int buttonPressed = 0;
+
+
 // Global variables
 extern unsigned long uptime_in_sec;
 extern String application;
@@ -30,20 +39,20 @@ void hmi_init()
 
     // initialize mcp23008 chip at default address 0 - 3 buttons as input
     mcp.begin();
-    mcp.pinMode(0, INPUT);
-    mcp.pullUp(0, HIGH);
-    mcp.pinMode(1, INPUT);
-    mcp.pullUp(1, HIGH);
-    mcp.pinMode(2, INPUT);
-    mcp.pullUp(2, HIGH);
+    mcp.pinMode(HMI_BUTTON_OPENDOOR, INPUT);
+    mcp.pullUp(HMI_BUTTON_OPENDOOR, HIGH);
+    mcp.pinMode(HMI_BUTTON_SYSTEMINFO, INPUT);
+    mcp.pullUp(HMI_BUTTON_SYSTEMINFO, HIGH);
+    mcp.pinMode(HMI_BUTTON_CLOSEDOOR, INPUT);
+    mcp.pullUp(HMI_BUTTON_CLOSEDOOR, HIGH);
 
     // configure L3 EDs as output
-    mcp.pinMode(4, OUTPUT);
-    mcp.pinMode(5, OUTPUT);
-    mcp.pinMode(6, OUTPUT);
+    mcp.pinMode(HMI_LED_DOORCLOSED, OUTPUT);
+    mcp.pinMode(HMI_LED_DOORMOVING, OUTPUT);
+    mcp.pinMode(HMI_LED_DOOROPEN, OUTPUT);
 
     // Beeper
-    mcp.pinMode(7, OUTPUT);
+    mcp.pinMode(HMI_BEEPER, OUTPUT);
 }
 
 /*
@@ -96,19 +105,40 @@ void hmi_display_text(String text)
 */
 void hmi_loop()
 {
-    //Serial.println("Display Loop");
-    // button s1 pressed?
-    if (mcp.digitalRead(2) == 0)
+    // check button pressed states
+    buttonPressed = HMI_BUTTON_NONE;
+    if (mcp.digitalRead(HMI_BUTTON_OPENDOOR) == BUTTONSTATUS_PRESSED)
     {
-        mcp.digitalWrite(6, HIGH); //switch led D1 on
-        hmi_display_text("Button 1 pressed");
-        delay(1000);
+        mcp.digitalWrite(HMI_LED_DOOROPEN, HIGH);
+        buttonPressed = HMI_BUTTON_OPENDOOR;
     }
     else
     {
-        mcp.digitalWrite(6, LOW); //switch led D2 off
+        mcp.digitalWrite(HMI_LED_DOOROPEN, LOW);
+    }
+
+    if (mcp.digitalRead(HMI_BUTTON_CLOSEDOOR) == BUTTONSTATUS_PRESSED)
+    {
+        mcp.digitalWrite(HMI_LED_DOORCLOSED, HIGH);
+        buttonPressed = HMI_BUTTON_CLOSEDOOR;
+    }
+    else
+    {
+        mcp.digitalWrite(HMI_LED_DOORCLOSED, LOW);
+    }
+    if (mcp.digitalRead(HMI_BUTTON_SYSTEMINFO) == BUTTONSTATUS_PRESSED)
+    {
+        buttonPressed = HMI_BUTTON_SYSTEMINFO;
     }
 
     // let other loops run
     yield();
+}
+
+/*
+* returns button pressed status for button<id>
+*/
+int hmi_getbuttonpressed()
+{
+    return buttonPressed;
 }
