@@ -81,3 +81,20 @@ void driveio_readiosignals(){
     if (doorStatusIsOpen){currentDoorStatus = DOORSTATUSOPEN;}
     if (doorStatusIsClosed){currentDoorStatus = DOORSTATUSCLOSED;}
 }
+
+/*
+* sets the IO signals to request the new door status (open or close)
+*/
+void driveio_setdoorcommand(int Command)
+{
+    if (Command == DOORCOMMANDOPEN)
+    {
+        digitalWrite(CMD_OPENDOOR_OUTPUT, HIGH);
+        digitalWrite(CMD_CLOSEDOOR_OUTPUT, LOW);
+    }
+    if (Command == DOORCOMMANDCLOSE)
+    {
+        digitalWrite(CMD_CLOSEDOOR_OUTPUT, HIGH);
+        digitalWrite(CMD_OPENDOOR_OUTPUT, LOW);
+    }
+}

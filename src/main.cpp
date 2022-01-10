@@ -57,6 +57,8 @@ void watchdog_init();
 void watchdog_reset();
 void watchdog_onShutdown();
 void publish_sensor_values();
+void command_open(String fromSource);
+void command_close(String fromSource);
 
 // setup the board an all variables
 void setup()
@@ -142,34 +144,82 @@ void loop()
   // trigger the watchdog
   watchdog_reset();
 
-  // check if door state was changed
-  if (driveio_doorstatuschanged(&oldDoorStatus, &newDoorStatus)){
-      char buffer[80];
-      sprintf(buffer, "RUN: current status %d changed to new status %d", oldDoorStatus, newDoorStatus);
-      Serial.println(buffer);
-      if (newDoorStatus==DOORSTATUSOPEN){
-          mqtt_publish(MQTT_TOPICCONTROLGETCURRENTDOORSTATE, MQTT_STATUSDOOROPEN);
-          mqtt_publish(MQTT_TOPICCONTROLGETNEWDOORSTATE, MQTT_STATUSDOOROPEN);
-      }
-     if (newDoorStatus==DOORSTATUSCLOSED){
-          mqtt_publish(MQTT_TOPICCONTROLGETCURRENTDOORSTATE, MQTT_STATUSDOORCLOSED);
-          mqtt_publish(MQTT_TOPICCONTROLGETNEWDOORSTATE, MQTT_STATUSDOORCLOSED);
-      }
+  // check if door status was changed
+  if (driveio_doorstatuschanged(&oldDoorStatus, &newDoorStatus))
+  {
+    if (newDoorStatus == DOORSTATUSOPEN)
+    {
+      mqtt_publish(MQTT_TOPICCONTROLGETCURRENTDOORSTATE, MQTT_STATUSDOOROPEN);
+      mqtt_publish(MQTT_TOPICCONTROLGETNEWDOORSTATE, MQTT_COMMANDDOOROPEN);
+     }
+    if (newDoorStatus == DOORSTATUSCLOSED)
+    {
+      mqtt_publish(MQTT_TOPICCONTROLGETCURRENTDOORSTATE, MQTT_STATUSDOORCLOSED);
+      mqtt_publish(MQTT_TOPICCONTROLGETNEWDOORSTATE, MQTT_COMMANDDOORCLOSE);
+    }
+    if (newDoorStatus == DOORSTATUSEXTERNAL)
+    {
+      mqtt_publish(MQTT_TOPICCONTROLCOMMANDSOURCE, MQTT_COMMANDSOURCEEXTERNAL);     
+    }   
   }
 
   // check for user command (button press on HMI)
   int buttonPressed = hmi_getbuttonpressed();
-  if (buttonPressed!=HMI_BUTTON_NONE){
-      lastCommand = buttonPressed;
-      if (buttonPressed==HMI_BUTTON_OPENDOOR){
-         mqtt_publish(MQTT_TOPICCONTROLSETNEWDOORSTATE, MQTT_COMMANDDOOROPEN);
-      }
-      if (buttonPressed==HMI_BUTTON_CLOSEDOOR){
-        mqtt_publish(MQTT_TOPICCONTROLSETNEWDOORSTATE, MQTT_COMMANDDOORCLOSE);
-      }
+  if (buttonPressed != HMI_BUTTON_NONE)
+  {
+    lastCommand = buttonPressed;
+    if (buttonPressed == HMI_BUTTON_OPENDOOR)
+    {
+      command_open(MQTT_COMMANDSOURCELOCAL);
+    }
+    if (buttonPressed == HMI_BUTTON_CLOSEDOOR)
+    {
+      command_close(MQTT_COMMANDSOURCELOCAL);
+    }
+  }
+
+  // check for remote command (over MQTT)
+  String remoteCommand = mqtt_getcommand();
+  if (remoteCommand.length()!=0){
+    if (remoteCommand==MQTT_COMMANDDOOROPEN)
+    {
+      command_open(MQTT_COMMANDSOURCEREMOTE);
+    }
+    if (remoteCommand==MQTT_COMMANDDOORCLOSE)
+    {
+      command_close(MQTT_COMMANDSOURCEREMOTE);
+    }
   }
 
   mainFirstRun = false;
+}
+
+/*
+ * set door to open
+ */
+void command_open(String fromSource)
+{
+    char buffer[80];
+    sprintf(buffer, "RUN: Command: DOOROPEN (source=%s)" , fromSource.c_str());
+    Serial.println(buffer);
+    mqtt_publish(MQTT_TOPICCONTROLGETNEWDOORSTATE, MQTT_COMMANDDOOROPEN);
+    mqtt_publish(MQTT_TOPICCONTROLGETCURRENTDOORSTATE, MQTT_STATUSDOOROPENING);
+    mqtt_publish(MQTT_TOPICCONTROLCOMMANDSOURCE, fromSource);
+    driveio_setdoorcommand(DOORCOMMANDOPEN);
+}
+
+/*
+ * set door to close
+ */
+void command_close(String fromSource)
+{
+    char buffer[80];
+    sprintf(buffer, "RUN: Command: DOORCLOSE (source=%s)", fromSource.c_str());
+    Serial.println(buffer);   
+    mqtt_publish(MQTT_TOPICCONTROLGETNEWDOORSTATE, MQTT_COMMANDDOORCLOSE);
+    mqtt_publish(MQTT_TOPICCONTROLGETCURRENTDOORSTATE, MQTT_STATUSDOORCLOSING);
+    mqtt_publish(MQTT_TOPICCONTROLCOMMANDSOURCE, fromSource);
+    driveio_setdoorcommand(DOORCOMMANDCLOSE);
 }
 
 /*

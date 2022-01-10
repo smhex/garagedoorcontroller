@@ -24,10 +24,7 @@ String mqttPassword = "mosquitto";
 String mqttLastWillMsg = "offline";
 String mqttFirstWillMsg = "online";
 
-// list of command sources
-String commandSourceRemote = "remote";
-String commandSourceLocal = "local";
-String commandSourceExternal = "external";
+String command ="";
 
 bool mqttFirstRun = true;
 
@@ -90,10 +87,8 @@ void onTopicControlSetNewDoorStateReceived(const String &payload, const size_t s
     {
         sprintf(buffer,"RUN: Subscribe: set %s to %s",MQTT_TOPICCONTROLSETNEWDOORSTATE, payload.c_str());
         Serial.println(buffer);
-        mqtt_publish(MQTT_TOPICCONTROLGETNEWDOORSTATE, payload);
-        mqtt_publish(MQTT_TOPICCONTROLGETCURRENTDOORSTATE, payload);
-        mqtt_publish(MQTT_TOPICCONTROLCOMMANDSOURCE, commandSourceRemote);
-    }
+        command = payload;
+      }
 }
 
 /*
@@ -104,6 +99,16 @@ void mqtt_publish(String topic, String payload)
 {
     Serial.println("RUN: Publish: set " + topic + " to " + payload);
     mqttClient.publish(topic, payload, false, 0);
+}
+
+/*
+ * Returns the
+ */
+String mqtt_getcommand()
+{
+    String retval = command;
+    command = "";
+    return retval;
 }
 
 /*

@@ -20,7 +20,13 @@
 #define MQTT_TOPICCONTROLGETCURRENTDOORSTATE "gdc/control/getcurrentdoorstate"
 #define MQTT_TOPICCONTROLCOMMANDSOURCE  "gdc/control/commandsource"
 
+// list of command sources
+#define MQTT_COMMANDSOURCELOCAL     "local"
+#define MQTT_COMMANDSOURCEREMOTE    "remote"
+#define MQTT_COMMANDSOURCEEXTERNAL  "external"
+
 /* exports */
 void mqtt_init();
 void mqtt_loop();
 void mqtt_publish(String topic, String payload);
+String mqtt_getcommand();
