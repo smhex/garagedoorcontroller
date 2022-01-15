@@ -3,6 +3,19 @@
 #include <Wire.h>
 #include <Adafruit_MCP23008.h>
 
+#include "hmi.h"
+
+// internal defines
+#define BUTTONSTATUS_PRESSED 0 // inputs use internal pullup's
+
+// button states
+int buttonPressed = 0;
+int debounce_button_ms = 100;
+
+bool doorOpenLedBlink = false;
+bool doorClosedLedBlink = false;
+int ledBlinkDuration = 100;
+
 // Global variables
 extern unsigned long uptime_in_sec;
 extern String application;
@@ -30,20 +43,25 @@ void hmi_init()
 
     // initialize mcp23008 chip at default address 0 - 3 buttons as input
     mcp.begin();
-    mcp.pinMode(0, INPUT);
-    mcp.pullUp(0, HIGH);
-    mcp.pinMode(1, INPUT);
-    mcp.pullUp(1, HIGH);
-    mcp.pinMode(2, INPUT);
-    mcp.pullUp(2, HIGH);
+    mcp.pinMode(HMI_BUTTON_OPENDOOR, INPUT);
+    mcp.pullUp(HMI_BUTTON_OPENDOOR, HIGH);
+    mcp.pinMode(HMI_BUTTON_SYSTEMINFO, INPUT);
+    mcp.pullUp(HMI_BUTTON_SYSTEMINFO, HIGH);
+    mcp.pinMode(HMI_BUTTON_CLOSEDOOR, INPUT);
+    mcp.pullUp(HMI_BUTTON_CLOSEDOOR, HIGH);
 
-    // configure L3 EDs as output
-    mcp.pinMode(4, OUTPUT);
-    mcp.pinMode(5, OUTPUT);
-    mcp.pinMode(6, OUTPUT);
+    // configure 3 leds as output
+    mcp.pinMode(HMI_LED_DOORCLOSED, OUTPUT);
+    mcp.pinMode(HMI_LED_SYSTEMINFO, OUTPUT);
+    mcp.pinMode(HMI_LED_DOOROPEN, OUTPUT);
 
     // Beeper
-    mcp.pinMode(7, OUTPUT);
+    mcp.pinMode(HMI_BEEPER, OUTPUT);
+
+    // set all leds to OFF
+    mcp.digitalWrite(HMI_LED_DOOROPEN, LOW);
+    mcp.digitalWrite(HMI_LED_SYSTEMINFO, LOW);
+    mcp.digitalWrite(HMI_LED_DOORCLOSED, LOW);
 }
 
 /*
@@ -65,12 +83,12 @@ void hmi_display_splashscreen(String status)
 }
 
 /*
-* Clears display buffer -> switch off
+* Activates the powersave mode for the display. The content is preserved but
+* not printed on the display. 
 */
-void hmi_display_off()
+void hmi_display_off(bool enable)
 {
-    u8g2.clearBuffer();
-    u8g2.sendBuffer();
+    u8g2.setPowerSave(!enable);
 }
 
 /*
@@ -96,19 +114,125 @@ void hmi_display_text(String text)
 */
 void hmi_loop()
 {
-    //Serial.println("Display Loop");
-    // button s1 pressed?
-    if (mcp.digitalRead(2) == 0)
+    // check button pressed states
+    buttonPressed = HMI_BUTTON_NONE;
+    static uint32_t prev_ms_debounce = millis();
+    if (millis() > prev_ms_debounce + debounce_button_ms)
     {
-        mcp.digitalWrite(6, HIGH); //switch led D1 on
-        hmi_display_text("Button 1 pressed");
-        delay(1000);
+        prev_ms_debounce = millis();
+        if (mcp.digitalRead(HMI_BUTTON_OPENDOOR) == BUTTONSTATUS_PRESSED)
+        {
+            buttonPressed = HMI_BUTTON_OPENDOOR;
+        }
+
+        if (mcp.digitalRead(HMI_BUTTON_CLOSEDOOR) == BUTTONSTATUS_PRESSED)
+        {
+            buttonPressed = HMI_BUTTON_CLOSEDOOR;
+        }
+
+        if (mcp.digitalRead(HMI_BUTTON_SYSTEMINFO) == BUTTONSTATUS_PRESSED)
+        {
+            buttonPressed = HMI_BUTTON_SYSTEMINFO;
+            hmi_setled(HMI_LED_SYSTEMINFO, HIGH);
+        }
+        else
+        {
+            hmi_setled(HMI_LED_SYSTEMINFO, LOW);
+        }
     }
-    else
+
+    // activate blinking
+    if (doorOpenLedBlink)
     {
-        mcp.digitalWrite(6, LOW); //switch led D2 off
+        static uint32_t prev_ms_on = millis();
+        if (millis() > prev_ms_on + ledBlinkDuration)
+        {
+            prev_ms_on = millis();
+            int ledState = hmi_getled(HMI_LED_DOOROPEN);
+            ledState = (ledState == LOW) ? HIGH : LOW;
+            hmi_setled(HMI_LED_DOOROPEN, ledState);
+        }
+    }
+    if (doorClosedLedBlink)
+    {
+        static uint32_t prev_ms_on = millis();
+        if (millis() > prev_ms_on + ledBlinkDuration)
+        {
+            prev_ms_on = millis();
+            int ledState = hmi_getled(HMI_LED_DOORCLOSED);
+            ledState = (ledState == LOW) ? HIGH : LOW;
+            hmi_setled(HMI_LED_DOORCLOSED, ledState);
+        }
     }
 
     // let other loops run
     yield();
+}
+
+/*
+* returns button pressed status for button<id>
+*/
+int hmi_getbuttonpressed()
+{
+    return buttonPressed;
+}
+
+/*
+* sets the status of a led to either ON or OFF
+*/
+void hmi_setled(int led, int status)
+{
+    mcp.digitalWrite(led, status);
+}
+
+/*
+* gets the status of a led
+*/
+int hmi_getled(int led)
+{
+    return mcp.digitalRead(led);
+}
+
+/*
+* Sets the status of a led to blink. Blinking needs to be started and stopped
+* by the enable parameter. In order not to block the main loop this function 
+* only sets a flag for the given led. The blinking itself is done via write
+* command in hmi_loop(). Setting parameter enable to false has the same effect
+* like calling hmi_setled(led, OFF). This is used to maintain a definitive ON/OFF
+* state for the led
+*/
+void hmi_setled_blinking(int led, bool enable)
+{
+    hmi_setled(led, enable);
+    if (led == HMI_LED_DOOROPEN)
+    {
+        doorOpenLedBlink = enable;
+    }
+    if (led == HMI_LED_DOORCLOSED)
+    {
+        doorClosedLedBlink = enable;
+    }
+}
+
+/*
+* draws a full frame with title and text information. The title has a horizontal line
+* as a separator between the text
+*/
+void hmi_display_frame(String title, String text[], int numlines)
+{
+    int startPos = (numlines==4) ? 18 : 27;
+    if (numlines==2) {startPos=36;}
+    u8g2.clearBuffer();
+    u8g2.setFont(u8g2_font_6x10_tf);
+    u8g2.setFontRefHeightExtendedText();
+    u8g2.setDrawColor(1);
+    u8g2.setFontPosTop();
+    u8g2.setFontDirection(0);
+    u8g2.drawStr(ALIGN_CENTER(title.c_str()), 2, title.c_str());
+    u8g2.drawHLine(0, 13, displayWidth);
+    for (int i = 0; i < numlines; i++)
+    {
+        u8g2.drawStr(ALIGN_CENTER(text[i].c_str()), startPos + (i * 12), text[i].c_str());
+    }
+    u8g2.sendBuffer();
 }

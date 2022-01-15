@@ -4,6 +4,8 @@
 #include <Ethernet.h>
 #include <ArduinoJson.h>
 
+#include "mqtt.h"
+
 // Global variables defined in main.cpp
 extern unsigned long uptime_in_sec;
 extern String application;
@@ -12,7 +14,8 @@ extern String author;
 extern EthernetClient ethClient;
 
 // MQTT broker/topic configuration
-MQTTPubSubClient mqttClient;
+// 256 bytes need to publish the sensors topic
+MQTTPubSub::PubSubClient<256> mqttClient;
 const char mqttBrokerAddress[] = "mosquitto.debes-online.com";
 const unsigned int mqttBrokerPort = 1883;
 String mqttClientID = "arduino-gdc";
@@ -21,33 +24,12 @@ String mqttPassword = "mosquitto";
 String mqttLastWillMsg = "offline";
 String mqttFirstWillMsg = "online";
 
-// list of supported mqtt topic
-String mqttTopicSystemUptime = "gdc/system/uptime";
-String mqttTopicSystemInfo = "gdc/system/info";
-String mqttTopicSystemStatus = "gdc/system/status";
-String mqttTopicControlSetNewDoorState = "gdc/control/setnewdoorstate";
-String mqttTopicControlGetNewDoorState = "gdc/control/getnewdoorstate";
-String mqttTopicControlGetCurrentDoorState = "gdc/control/getcurrentdoorstate";
-String mqttTopicControlCommandSource = "gdc/control/commandsource";
+String command ="";
 
-// list of support commands and states
-String commandDoorOpen = "open";
-String commandDoorClose = "close";
-String statusDoorOpen = "open";
-String statusDoorClosed = "closed";
-String statusDoorOpening = "opening";
-String statusDoorClosing = "closing";
-String statusDoorStopped = "stopped";
-String statusDoorUnknown = "unknown";
+int numPacketsReceived = 0;
+int numPacketsSent = 0;
 
-// list of command sources
-String commandSourceRemote = "remote";
-String commandSourceLocal = "local";
-String commandSourceRC = "rc";
-
-// global buffer for dealing with json packets
-StaticJsonDocument<128> jsonDoc;
-char jsonBuffer[128];
+bool mqttFirstRun = true;
 
 // handler for mqtt receive
 void onTopicControlSetNewDoorStateReceived(const String &payload, const size_t size);
@@ -55,14 +37,17 @@ void mqtt_publish(String topic, String payload);
 
 /*
 * Creates the connection to the MQTT broker and performs the authentificaton. The 
-* topics will be initially published and the subscriptions will created
+* topics will be initially published and the subscriptions will be created
 */
 void mqtt_init()
 {
     // set mqtt client options
     mqttClient.setKeepAliveTimeout(60);
     mqttClient.setCleanSession(true);
-    mqttClient.setWill(mqttTopicSystemStatus, mqttLastWillMsg, true, 0);
+
+    // Lastwill topic is equal to system status topic
+    String mqttLastWillTopic = MQTT_TOPICSYSTEMSTATUS;
+    mqttClient.setWill(mqttLastWillTopic, mqttLastWillMsg, true, 0);
 
     // Connect to the broker
     Serial.print("INIT: Connecting mqtt broker...");
@@ -83,21 +68,10 @@ void mqtt_init()
     }
     Serial.println(" success");
 
-    // prepare json payload for info topic
-    jsonDoc["application"] = application;
-    jsonDoc["version"] = version;
-    jsonDoc["author"] = author;
-
-    // serialize json document into global buffer and publish
-    // attention: size of buffer is limited to 256 bytes
-    serializeJson(jsonDoc, jsonBuffer);
-    mqttClient.publish(mqttTopicSystemInfo, jsonBuffer, true, 0);
-    mqttClient.publish(mqttTopicControlSetNewDoorState, commandDoorOpen, false, 0);
-    mqttClient.publish(mqttTopicControlGetNewDoorState, statusDoorOpen, false, 0);
-    mqttClient.publish(mqttTopicControlGetCurrentDoorState, statusDoorOpen, false, 0);
+    mqttFirstRun = true;
 
     // Subscribe command topic
-    mqttClient.subscribe(mqttTopicControlSetNewDoorState, &onTopicControlSetNewDoorStateReceived);
+    mqttClient.subscribe(MQTT_TOPICCONTROLSETNEWDOORSTATE, &onTopicControlSetNewDoorStateReceived);
 }
 
 /*
@@ -105,20 +79,21 @@ void mqtt_init()
  */
 void onTopicControlSetNewDoorStateReceived(const String &payload, const size_t size)
 {
+    char buffer[80];
+    numPacketsReceived++;
 
     // Copy command topic back if payload is valid
-    if
-        (!(payload == commandDoorOpen || payload == commandDoorClose))
-        {
-            Serial.println("RUN: recv: set " + mqttTopicControlSetNewDoorState + " to " + payload + " (invalid)");
-        }
+    if (!(payload == MQTT_COMMANDDOOROPEN || payload == MQTT_COMMANDDOORCLOSE))
+    {
+        sprintf(buffer,"RUN: Subscribe: set %s to %s (invalid)",MQTT_TOPICCONTROLSETNEWDOORSTATE, payload.c_str());
+        Serial.println(buffer);
+    }
     else
     {
-        Serial.println("RUN: recv: set " + mqttTopicControlSetNewDoorState + " to " + payload);
-        mqtt_publish(mqttTopicControlGetNewDoorState, payload);
-        mqtt_publish(mqttTopicControlGetCurrentDoorState, payload);
-        mqtt_publish(mqttTopicControlCommandSource, commandSourceRemote);
-    }
+        sprintf(buffer,"RUN: Subscribe: set %s to %s",MQTT_TOPICCONTROLSETNEWDOORSTATE, payload.c_str());
+        Serial.println(buffer);
+        command = payload;
+      }
 }
 
 /*
@@ -127,8 +102,19 @@ void onTopicControlSetNewDoorStateReceived(const String &payload, const size_t s
  */
 void mqtt_publish(String topic, String payload)
 {
-    Serial.println("RUN: send: set " + topic + " to " + payload);
+    Serial.println("RUN: Publish: set " + topic + " to " + payload);
     mqttClient.publish(topic, payload, false, 0);
+    numPacketsSent++;
+}
+
+/*
+ * Returns the
+ */
+String mqtt_getcommand()
+{
+    String retval = command;
+    command = "";
+    return retval;
 }
 
 /*
@@ -145,19 +131,63 @@ void mqtt_loop()
     else
     {
         mqttClient.update();
-    }
+        if (mqttFirstRun)
+        {
+            // global buffer for dealing with json packets
+            DynamicJsonDocument jsonDoc(128);
+            char jsonBuffer[128];
 
-    // publish uptime message and online status every 1s
-    static uint32_t prev_ms = millis();
-    char buffer[12];
-    sprintf(buffer, "%lu", uptime_in_sec);
-    if (millis() > prev_ms + 1000)
-    {
-        prev_ms = millis();
-        mqttClient.publish(mqttTopicSystemUptime, buffer);
-        mqttClient.publish(mqttTopicSystemStatus, mqttFirstWillMsg, true, 0);
+            // prepare json payload for info topic
+            jsonDoc["application"] = application;
+            jsonDoc["version"] = version;
+            jsonDoc["author"] = author;
+
+            // serialize json document into global buffer and publish
+            // attention: size of buffer is limited to 256 bytes
+            serializeJson(jsonDoc, jsonBuffer);
+            mqttClient.publish(MQTT_TOPICSYSTEMINFO, jsonBuffer, true, 0);
+        }
+
+        // publish uptime message and online status every 1s
+        static uint32_t prev_ms = millis();
+        char buffer[12];
+        sprintf(buffer, "%lu", uptime_in_sec);
+        if (millis() > prev_ms + 1000)
+        {
+            prev_ms = millis();
+            mqttClient.publish(MQTT_TOPICSYSTEMUPTIME, buffer);
+            numPacketsSent++;
+            
+            mqttClient.publish(MQTT_TOPICSYSTEMSTATUS, mqttFirstWillMsg, true, 0);
+            numPacketsSent++;
+        }
+        mqttFirstRun = false;
     }
 
     // let other loops run
     yield();
+}
+
+/*
+* Returns the number of packets received since start
+*/
+int mqtt_getpacketsreceived()
+{
+    return numPacketsReceived;
+}
+
+/*
+* Returns the number of packets sent since start
+*/
+int mqtt_getpacketssent()
+{
+    return numPacketsSent;
+}
+
+/*
+* Retruns true if the client is connected to a broker
+*/
+bool mqtt_isconnected()
+{
+    return mqttClient.isConnected();
 }
