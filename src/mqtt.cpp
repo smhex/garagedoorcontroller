@@ -26,6 +26,9 @@ String mqttFirstWillMsg = "online";
 
 String command ="";
 
+int numPacketsReceived = 0;
+int numPacketsSent = 0;
+
 bool mqttFirstRun = true;
 
 // handler for mqtt receive
@@ -77,6 +80,8 @@ void mqtt_init()
 void onTopicControlSetNewDoorStateReceived(const String &payload, const size_t size)
 {
     char buffer[80];
+    numPacketsReceived++;
+
     // Copy command topic back if payload is valid
     if (!(payload == MQTT_COMMANDDOOROPEN || payload == MQTT_COMMANDDOORCLOSE))
     {
@@ -99,6 +104,7 @@ void mqtt_publish(String topic, String payload)
 {
     Serial.println("RUN: Publish: set " + topic + " to " + payload);
     mqttClient.publish(topic, payload, false, 0);
+    numPacketsSent++;
 }
 
 /*
@@ -150,11 +156,38 @@ void mqtt_loop()
         {
             prev_ms = millis();
             mqttClient.publish(MQTT_TOPICSYSTEMUPTIME, buffer);
+            numPacketsSent++;
+            
             mqttClient.publish(MQTT_TOPICSYSTEMSTATUS, mqttFirstWillMsg, true, 0);
+            numPacketsSent++;
         }
         mqttFirstRun = false;
     }
 
     // let other loops run
     yield();
+}
+
+/*
+* Returns the number of packets received since start
+*/
+int mqtt_getpacketsreceived()
+{
+    return numPacketsReceived;
+}
+
+/*
+* Returns the number of packets sent since start
+*/
+int mqtt_getpacketssent()
+{
+    return numPacketsSent;
+}
+
+/*
+* Retruns true if the client is connected to a broker
+*/
+bool mqtt_isconnected()
+{
+    return mqttClient.isConnected();
 }

@@ -2,12 +2,7 @@
 
 #include "driveio.h"
 
-// define the input and output pins to control the drive
-// those pin numbers must match the circuit/schematic
-#define CMD_OPENDOOR_OUTPUT 0
-#define STATUS_DOORISOPEN_INPUT 1
-#define CMD_CLOSEDOOR_OUTPUT 2
-#define STATUS_DOORISCLOSED_INPUT 3
+
 
 bool doorStatusIsUnknwon = true;
 bool doorStatusIsOpen = false;
@@ -123,4 +118,12 @@ void driveio_setdoorcommand(int Command)
         commandCloseDoorActive = true;
         prev_ms_close = millis(); 
     }
+}
+
+/*
+* Returns the state of the IO
+*/
+int driveio_getiostatus(int io)
+{
+    return digitalRead(io);
 }

@@ -30,3 +30,6 @@ void mqtt_init();
 void mqtt_loop();
 void mqtt_publish(String topic, String payload);
 String mqtt_getcommand();
+int mqtt_getpacketsreceived();
+int mqtt_getpacketssent();
+bool mqtt_isconnected();

@@ -6,10 +6,11 @@
 #include "hmi.h"
 
 // internal defines
-#define BUTTONSTATUS_PRESSED  0     // inputs use internal pullup's
+#define BUTTONSTATUS_PRESSED 0 // inputs use internal pullup's
 
 // button states
 int buttonPressed = 0;
+int debounce_button_ms = 100;
 
 bool doorOpenLedBlink = false;
 bool doorClosedLedBlink = false;
@@ -59,7 +60,7 @@ void hmi_init()
 
     // set all leds to OFF
     mcp.digitalWrite(HMI_LED_DOOROPEN, LOW);
-    mcp.digitalWrite(HMI_LED_SYSTEMINFO, LOW);    
+    mcp.digitalWrite(HMI_LED_SYSTEMINFO, LOW);
     mcp.digitalWrite(HMI_LED_DOORCLOSED, LOW);
 }
 
@@ -115,45 +116,53 @@ void hmi_loop()
 {
     // check button pressed states
     buttonPressed = HMI_BUTTON_NONE;
-    if (mcp.digitalRead(HMI_BUTTON_OPENDOOR) == BUTTONSTATUS_PRESSED)
+    static uint32_t prev_ms_debounce = millis();
+    if (millis() > prev_ms_debounce + debounce_button_ms)
     {
-        buttonPressed = HMI_BUTTON_OPENDOOR;
-    }
+        prev_ms_debounce = millis();
+        if (mcp.digitalRead(HMI_BUTTON_OPENDOOR) == BUTTONSTATUS_PRESSED)
+        {
+            buttonPressed = HMI_BUTTON_OPENDOOR;
+        }
 
-    if (mcp.digitalRead(HMI_BUTTON_CLOSEDOOR) == BUTTONSTATUS_PRESSED)
-    {
-        buttonPressed = HMI_BUTTON_CLOSEDOOR;
-    }
+        if (mcp.digitalRead(HMI_BUTTON_CLOSEDOOR) == BUTTONSTATUS_PRESSED)
+        {
+            buttonPressed = HMI_BUTTON_CLOSEDOOR;
+        }
 
-    if (mcp.digitalRead(HMI_BUTTON_SYSTEMINFO) == BUTTONSTATUS_PRESSED)
-    {
-        buttonPressed = HMI_BUTTON_SYSTEMINFO;
-        hmi_setled(HMI_LED_SYSTEMINFO, HIGH);
-    }
-    else{
-        hmi_setled(HMI_LED_SYSTEMINFO, LOW);
+        if (mcp.digitalRead(HMI_BUTTON_SYSTEMINFO) == BUTTONSTATUS_PRESSED)
+        {
+            buttonPressed = HMI_BUTTON_SYSTEMINFO;
+            hmi_setled(HMI_LED_SYSTEMINFO, HIGH);
+        }
+        else
+        {
+            hmi_setled(HMI_LED_SYSTEMINFO, LOW);
+        }
     }
 
     // activate blinking
     if (doorOpenLedBlink)
     {
-        static uint32_t prev_ms_on = millis();   
-        if (millis() > prev_ms_on + ledBlinkDuration){
-                prev_ms_on = millis();
-                int ledState =hmi_getled(HMI_LED_DOOROPEN);
-                ledState = (ledState == LOW) ? HIGH : LOW;
-                hmi_setled(HMI_LED_DOOROPEN, ledState);
+        static uint32_t prev_ms_on = millis();
+        if (millis() > prev_ms_on + ledBlinkDuration)
+        {
+            prev_ms_on = millis();
+            int ledState = hmi_getled(HMI_LED_DOOROPEN);
+            ledState = (ledState == LOW) ? HIGH : LOW;
+            hmi_setled(HMI_LED_DOOROPEN, ledState);
         }
     }
     if (doorClosedLedBlink)
     {
-         static uint32_t prev_ms_on = millis();   
-        if (millis() > prev_ms_on + ledBlinkDuration){
-                prev_ms_on = millis();
-                int ledState =hmi_getled(HMI_LED_DOORCLOSED);
-                ledState = (ledState == LOW) ? HIGH : LOW;
-                hmi_setled(HMI_LED_DOORCLOSED, ledState);
-        }       
+        static uint32_t prev_ms_on = millis();
+        if (millis() > prev_ms_on + ledBlinkDuration)
+        {
+            prev_ms_on = millis();
+            int ledState = hmi_getled(HMI_LED_DOORCLOSED);
+            ledState = (ledState == LOW) ? HIGH : LOW;
+            hmi_setled(HMI_LED_DOORCLOSED, ledState);
+        }
     }
 
     // let other loops run
@@ -206,9 +215,24 @@ void hmi_setled_blinking(int led, bool enable)
 }
 
 /*
-* display the page on the OLED
+* draws a full frame with title and text information. The title has a horizontal line
+* as a separator between the text
 */
-void hmi_showpage(int page)
+void hmi_display_frame(String title, String text[], int numlines)
 {
-    return ;
+    int startPos = (numlines==4) ? 18 : 27;
+    if (numlines==2) {startPos=36;}
+    u8g2.clearBuffer();
+    u8g2.setFont(u8g2_font_6x10_tf);
+    u8g2.setFontRefHeightExtendedText();
+    u8g2.setDrawColor(1);
+    u8g2.setFontPosTop();
+    u8g2.setFontDirection(0);
+    u8g2.drawStr(ALIGN_CENTER(title.c_str()), 2, title.c_str());
+    u8g2.drawHLine(0, 13, displayWidth);
+    for (int i = 0; i < numlines; i++)
+    {
+        u8g2.drawStr(ALIGN_CENTER(text[i].c_str()), startPos + (i * 12), text[i].c_str());
+    }
+    u8g2.sendBuffer();
 }

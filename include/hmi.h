@@ -21,4 +21,4 @@ int hmi_getbuttonpressed();
 void hmi_setled(int led, int status);
 int hmi_getled(int led);
 void hmi_setled_blinking(int led, bool enable);
-void hmi_showpage(int page);
+void hmi_display_frame(String title, String text[], int numlines);
