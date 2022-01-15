@@ -20,6 +20,13 @@
 #include "mqtt.h"
 #include "sensors.h"
 
+#define PAGE_OVERVIEW 0
+#define PAGE_SENSORS  1
+#define PAGE_DRIVEIO  2
+#define PAGE_HMI      3
+#define PAGE_MQTT     4
+#define PAGE_SYSTEM   5
+
 // Network configuration - sets MAC and IP address
 byte mac[] = {0xDE, 0xAD, 0xBE, 0xEF, 0xFE, 0xED};
 IPAddress ip(192, 168, 30, 241);
@@ -52,6 +59,12 @@ int newDoorStatus = 0;
 // maintain door command
 int lastCommand = 0;
 
+int currentSystemInfoPage = PAGE_OVERVIEW;
+
+int displayTimeout_ms = 5000;
+unsigned long prev_displayTimeout_ms = 0;
+bool displayIsOn = false;
+
 // Forward declarations
 void watchdog_init();
 void watchdog_reset();
@@ -59,6 +72,15 @@ void watchdog_onShutdown();
 void publish_sensor_values();
 void command_open(String fromSource);
 void command_close(String fromSource);
+void status_isopen();
+void status_isclosed();
+void show_systeminfo();
+void show_page_sensors();
+void show_page_overview();
+void show_page_driveio();
+void show_page_hmi();
+void show_page_mqtt();
+void show_page_system();
 
 // setup the board an all variables
 void setup()
@@ -74,7 +96,6 @@ void setup()
 
   // Initialize display
   hmi_init();
-  hmi_display_splashscreen("Loading...");
 
   // store offset for uptime counter
   last_milliseconds = millis();
@@ -115,15 +136,16 @@ void setup()
   {
     Serial.println("ERROR: Ethernet cable is not connected");
   }
-
   Serial.print("INIT: Controller network interface is at ");
   Serial.println(Ethernet.localIP());
 
-  // show IP addess on display
-  hmi_display_splashscreen(IPAddressToString(Ethernet.localIP()));
-
   // Initialize MQTT client
   mqtt_init();
+
+  // show initial screen
+  displayIsOn = true;
+  prev_displayTimeout_ms = millis();
+  hmi_display_off(displayIsOn);
 }
 
 // main loop - reads/writes commands and sensor values
@@ -149,13 +171,11 @@ void loop()
   {
     if (newDoorStatus == DOORSTATUSOPEN)
     {
-      mqtt_publish(MQTT_TOPICCONTROLGETCURRENTDOORSTATE, MQTT_STATUSDOOROPEN);
-      mqtt_publish(MQTT_TOPICCONTROLGETNEWDOORSTATE, MQTT_COMMANDDOOROPEN);
+        status_isopen();
      }
     if (newDoorStatus == DOORSTATUSCLOSED)
     {
-      mqtt_publish(MQTT_TOPICCONTROLGETCURRENTDOORSTATE, MQTT_STATUSDOORCLOSED);
-      mqtt_publish(MQTT_TOPICCONTROLGETNEWDOORSTATE, MQTT_COMMANDDOORCLOSE);
+        status_isclosed();
     }
     if (newDoorStatus == DOORSTATUSEXTERNAL)
     {
@@ -176,6 +196,16 @@ void loop()
     {
       command_close(MQTT_COMMANDSOURCELOCAL);
     }
+    if (buttonPressed == HMI_BUTTON_SYSTEMINFO)
+    {
+      currentSystemInfoPage++;
+      char buffer[80];
+      sprintf(buffer, "RUN: SYSINFO: %d", currentSystemInfoPage);
+      Serial.println(buffer); 
+      displayIsOn = true;
+      prev_displayTimeout_ms = millis();
+      hmi_display_off(displayIsOn);
+    }
   }
 
   // check for remote command (over MQTT)
@@ -191,6 +221,14 @@ void loop()
     }
   }
 
+  if (displayIsOn)
+  {
+      show_systeminfo();
+      if (millis() > prev_displayTimeout_ms + displayTimeout_ms){
+          displayIsOn = false;
+          hmi_display_off(displayIsOn);
+      }
+  }
   mainFirstRun = false;
 }
 
@@ -202,10 +240,16 @@ void command_open(String fromSource)
     char buffer[80];
     sprintf(buffer, "RUN: Command: DOOROPEN (source=%s)" , fromSource.c_str());
     Serial.println(buffer);
+    
     mqtt_publish(MQTT_TOPICCONTROLGETNEWDOORSTATE, MQTT_COMMANDDOOROPEN);
     mqtt_publish(MQTT_TOPICCONTROLGETCURRENTDOORSTATE, MQTT_STATUSDOOROPENING);
     mqtt_publish(MQTT_TOPICCONTROLCOMMANDSOURCE, fromSource);
+    
     driveio_setdoorcommand(DOORCOMMANDOPEN);
+    
+    hmi_setled_blinking(HMI_LED_DOORCLOSED, false);
+    hmi_setled_blinking(HMI_LED_DOOROPEN, true);
+    hmi_setled(HMI_LED_DOORCLOSED, LOW);
 }
 
 /*
@@ -216,10 +260,80 @@ void command_close(String fromSource)
     char buffer[80];
     sprintf(buffer, "RUN: Command: DOORCLOSE (source=%s)", fromSource.c_str());
     Serial.println(buffer);   
+    
     mqtt_publish(MQTT_TOPICCONTROLGETNEWDOORSTATE, MQTT_COMMANDDOORCLOSE);
     mqtt_publish(MQTT_TOPICCONTROLGETCURRENTDOORSTATE, MQTT_STATUSDOORCLOSING);
     mqtt_publish(MQTT_TOPICCONTROLCOMMANDSOURCE, fromSource);
+    
     driveio_setdoorcommand(DOORCOMMANDCLOSE);
+    
+    hmi_setled(HMI_LED_DOOROPEN, LOW);
+    hmi_setled_blinking(HMI_LED_DOOROPEN, false);
+    hmi_setled_blinking(HMI_LED_DOORCLOSED, true);
+}
+
+/*
+ *  door is open
+ */
+void status_isopen()
+{
+  Serial.println("RUN: STATUS: DOOROPEN");  
+
+  mqtt_publish(MQTT_TOPICCONTROLGETCURRENTDOORSTATE, MQTT_STATUSDOOROPEN);
+  mqtt_publish(MQTT_TOPICCONTROLGETNEWDOORSTATE, MQTT_COMMANDDOOROPEN);
+  
+  hmi_setled_blinking(HMI_LED_DOOROPEN, false);  
+  hmi_setled_blinking(HMI_LED_DOORCLOSED, false);
+  hmi_setled(HMI_LED_DOOROPEN, HIGH);
+  hmi_setled(HMI_LED_DOORCLOSED, LOW);
+}
+
+/*
+ *  door is closed
+ */
+void status_isclosed()
+{
+  Serial.println("RUN: STATUS: DOORCLOSED");  
+
+  mqtt_publish(MQTT_TOPICCONTROLGETCURRENTDOORSTATE, MQTT_STATUSDOORCLOSED);
+  mqtt_publish(MQTT_TOPICCONTROLGETNEWDOORSTATE, MQTT_COMMANDDOORCLOSE);
+  
+  hmi_setled_blinking(HMI_LED_DOOROPEN, false);  
+  hmi_setled_blinking(HMI_LED_DOORCLOSED, false);
+  hmi_setled(HMI_LED_DOOROPEN, LOW);
+  hmi_setled(HMI_LED_DOORCLOSED, HIGH);
+
+}
+
+/*
+ * shows the next system info page on the OLED
+ */
+void show_systeminfo()
+{
+  switch(currentSystemInfoPage){
+    case PAGE_OVERVIEW: 
+        show_page_overview();
+        break;
+    case PAGE_SENSORS:
+        show_page_sensors();
+        break;
+    case PAGE_DRIVEIO:
+        show_page_driveio();
+        break;
+    case PAGE_HMI:
+        show_page_hmi();
+        break;
+    case PAGE_MQTT:
+        show_page_mqtt();
+        break;
+    case PAGE_SYSTEM:
+        show_page_system();
+        break;
+    default:
+        currentSystemInfoPage = -1;
+        break;
+  }
+  hmi_showpage(currentSystemInfoPage);
 }
 
 /*
@@ -293,4 +407,22 @@ void watchdog_reset()
 void watchdog_onShutdown()
 {
   Serial.print("\nERROR: watchdog not cleared. Controller reboot initiated");
+}
+
+void show_page_overview(){
+}
+
+void show_page_sensors(){
+}
+
+void show_page_driveio(){
+}
+
+void show_page_hmi(){
+}
+
+void show_page_mqtt(){
+}
+
+void show_page_system(){
 }

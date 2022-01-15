@@ -15,8 +15,15 @@ bool doorStatusIsClosed = false;
 bool doorStatusIsMovingOrStopped = false;
 bool doorStatusIsExternal = false;
 
-int currentDoorStatus = DOORSTATUSUNKNOWN;
-int previousDoorStatus = DOORSTATUSUNKNOWN;
+int commandDuration = 500;
+bool commandOpenDoorActive = false;
+bool commandCloseDoorActive = false;
+
+int currentDoorStatus = DOORSTATUSEXTERNAL;
+int previousDoorStatus = DOORSTATUSEXTERNAL;
+
+unsigned long prev_ms_open = 0;  
+unsigned long prev_ms_close = 0;  
 
 // forward declarations
 void driveio_readiosignals();
@@ -31,9 +38,6 @@ void driveio_init()
     pinMode(STATUS_DOORISOPEN_INPUT, INPUT_PULLDOWN);
     pinMode(CMD_CLOSEDOOR_OUTPUT, OUTPUT);
     pinMode(STATUS_DOORISCLOSED_INPUT, INPUT_PULLDOWN);
-
-    // read IO signals to
-    driveio_readiosignals();
 }
 
 /*
@@ -44,7 +48,24 @@ void driveio_loop()
     // read signals
     driveio_readiosignals();
 
-    //digitalWrite(CMD_OPENDOOR_OUTPUT, doorStatusIsOpen);
+    // send command
+    if (commandOpenDoorActive)
+    {
+        digitalWrite(CMD_OPENDOOR_OUTPUT, HIGH);
+        if (millis() > prev_ms_open + commandDuration){
+                digitalWrite(CMD_OPENDOOR_OUTPUT, LOW);
+                commandOpenDoorActive = false;
+        }
+    }
+    if (commandCloseDoorActive)
+    {  
+         digitalWrite(CMD_CLOSEDOOR_OUTPUT, HIGH);  
+        if (millis() > prev_ms_close + commandDuration){
+                digitalWrite(CMD_CLOSEDOOR_OUTPUT, LOW);
+                commandCloseDoorActive = false;      
+        }
+    }
+
     // let the other loops run
     yield();
 }
@@ -69,32 +90,37 @@ void driveio_readiosignals(){
     previousDoorStatus = currentDoorStatus;
 
     // get current door status
-    currentDoorStatus = DOORSTATUSUNKNOWN;
+    currentDoorStatus = DOORSTATUSEXTERNAL;
     doorStatusIsOpen = digitalRead(STATUS_DOORISOPEN_INPUT);
     doorStatusIsClosed = digitalRead(STATUS_DOORISCLOSED_INPUT);
     doorStatusIsExternal = (!doorStatusIsOpen && !doorStatusIsClosed);
     doorStatusIsMovingOrStopped = (doorStatusIsOpen && doorStatusIsClosed);
 
     // put into doorStatus variable
-    if (doorStatusIsMovingOrStopped){currentDoorStatus = DOORSTATUSMOVINGORSTOPPED;}
-    if (doorStatusIsExternal){currentDoorStatus = DOORSTATUSEXTERNAL;}
-    if (doorStatusIsOpen){currentDoorStatus = DOORSTATUSOPEN;}
-    if (doorStatusIsClosed){currentDoorStatus = DOORSTATUSCLOSED;}
+    if (doorStatusIsMovingOrStopped){
+        currentDoorStatus = DOORSTATUSMOVINGORSTOPPED;
+    }
+    else{
+        if (doorStatusIsOpen){currentDoorStatus = DOORSTATUSOPEN;}
+        if (doorStatusIsClosed){currentDoorStatus = DOORSTATUSCLOSED;}
+    }
 }
 
 /*
-* sets the IO signals to request the new door status (open or close)
+* Sets the IO signals to request the new door status (open or close).
+* The output is actually set during the loop() function to make it
+* non blocking. 
 */
 void driveio_setdoorcommand(int Command)
 {
-    if (Command == DOORCOMMANDOPEN)
+    if ((Command == DOORCOMMANDOPEN) && (!commandOpenDoorActive))
     {
-        digitalWrite(CMD_OPENDOOR_OUTPUT, HIGH);
-        digitalWrite(CMD_CLOSEDOOR_OUTPUT, LOW);
+        commandOpenDoorActive = true;
+        prev_ms_open = millis();  
     }
-    if (Command == DOORCOMMANDCLOSE)
+    if ((Command == DOORCOMMANDCLOSE) && (!commandCloseDoorActive))
     {
-        digitalWrite(CMD_CLOSEDOOR_OUTPUT, HIGH);
-        digitalWrite(CMD_OPENDOOR_OUTPUT, LOW);
+        commandCloseDoorActive = true;
+        prev_ms_close = millis(); 
     }
 }
