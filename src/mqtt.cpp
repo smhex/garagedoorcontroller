@@ -30,6 +30,7 @@ int numPacketsReceived = 0;
 int numPacketsSent = 0;
 
 bool mqttFirstRun = true;
+bool mqttInitialized = false;
 
 // handler for mqtt receive
 void onTopicControlSetNewDoorStateReceived(const String &payload, const size_t size);
@@ -68,6 +69,7 @@ void mqtt_init()
     }
     Serial.println(" success");
 
+    mqttInitialized = true;
     mqttFirstRun = true;
 
     // Subscribe command topic
@@ -189,5 +191,9 @@ int mqtt_getpacketssent()
 */
 bool mqtt_isconnected()
 {
-    return mqttClient.isConnected();
+    bool retval = false;
+    if (mqttInitialized){
+        retval = mqttClient.isConnected();
+    }
+    return retval;
 }

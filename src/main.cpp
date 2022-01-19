@@ -61,7 +61,8 @@ int lastCommand = 0;
 
 int currentSystemInfoPage = PAGE_OVERVIEW;
 
-int displayTimeout_ms = 5000;
+// 30s timeout for OLED display in HMI module
+int displayTimeout_ms = 30000;
 unsigned long prev_displayTimeout_ms = 0;
 bool displayIsOn = false;
 
@@ -86,10 +87,9 @@ void show_page_system();
 void setup()
 {
 
-  // Init serial line with 9600 baud
+  // Init serial line with 9600 baud and wait 5s to get a terminal connected
   Serial.begin(9600);
-  while (!Serial)
-    ;
+  delay(2000);
 
   // setup watchdog
   watchdog_init();
@@ -100,13 +100,11 @@ void setup()
   // store offset for uptime counter
   last_milliseconds = millis();
 
-  // Initial delay to get the serial monitor attached after port is availabe for host
-  delay(1000);
-
   // show initial screen
   displayIsOn = true;
   prev_displayTimeout_ms = millis();
   hmi_display_off(displayIsOn);
+  show_page_overview();
 
   // This should be the first line in the serial log
   Serial.println("INIT: Starting...");
@@ -426,11 +424,13 @@ void watchdog_onShutdown()
 */
 void show_page_overview()
 {
-  String status = (ethClient.connected() && mqtt_isconnected())?"Online":"Offline";
-  String text[3] = {
+  String ethStatus = (ethClient.connected()==true) ? "connected" : "disconnected";
+  String mqttStatus = (mqtt_isconnected()==true) ? "connected" : "disconnected";
+  String text[4] = {
     "Version " + version, 
     "Copyright " + author, 
-    status, 
+    "Ethernet " + ethStatus,
+    "MQTT " + mqttStatus
   };
   int len = sizeof(text) / sizeof(text[0]);
   hmi_display_frame(application, text, len);
