@@ -65,48 +65,12 @@ void hmi_init()
 }
 
 /*
-* Shows the splashscreen using the application information
-*/
-void hmi_display_splashscreen(String status)
-{
-    u8g2.clearBuffer();
-    u8g2.setFont(u8g2_font_6x10_tf);
-    u8g2.setFontRefHeightExtendedText();
-    u8g2.setDrawColor(1);
-    u8g2.setFontPosTop();
-    u8g2.setFontDirection(0);
-    u8g2.drawStr(ALIGN_CENTER(application.c_str()), 6, application.c_str());
-    u8g2.drawStr(ALIGN_CENTER(version.c_str()), 18, version.c_str());
-    u8g2.drawStr(ALIGN_CENTER(author.c_str()), 30, author.c_str());
-    u8g2.drawStr(ALIGN_CENTER(status.c_str()), 50, status.c_str());
-    u8g2.sendBuffer();
-}
-
-/*
 * Activates the powersave mode for the display. The content is preserved but
 * not printed on the display. 
 */
 void hmi_display_off(bool enable)
 {
     u8g2.setPowerSave(!enable);
-}
-
-/*
-* Clears display buffer -> switch off
-*/
-void hmi_display_text(String text)
-{
-    u8g2.clearBuffer();
-    u8g2.setFont(u8g2_font_6x10_tf);
-    u8g2.setFontRefHeightExtendedText();
-    u8g2.setDrawColor(1);
-    u8g2.setFontPosTop();
-    u8g2.setFontDirection(0);
-    //u8g2.drawStr(ALIGN_CENTER(application.c_str()),6, application.c_str());
-    //u8g2.drawStr(ALIGN_CENTER(version.c_str()),18, version.c_str());
-    //u8g2.drawStr(ALIGN_CENTER(author.c_str()),30, author.c_str());
-    u8g2.drawStr(ALIGN_CENTER(text.c_str()), 50, text.c_str());
-    u8g2.sendBuffer();
 }
 
 /*
