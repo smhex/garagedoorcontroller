@@ -1,7 +1,7 @@
 /* 
 * File:     main.cpp
 * Date:     19.01.2021
-* Version:  v0.1.1
+* Version:  v0.1.2
 * Author:   smhex
 */
 
@@ -37,7 +37,7 @@ EthernetClient ethClient;
 
 // global settings
 String application = "GarageDoorController";
-String version = "0.1.1";
+String version = "0.1.2";
 String author = "smhex";
 
 // global buffer for dealing with json packets
@@ -75,6 +75,7 @@ void command_open(String fromSource);
 void command_close(String fromSource);
 void status_isopen();
 void status_isclosed();
+void status_ismovingorstopped();
 void show_systeminfo();
 void show_page_sensors();
 void show_page_overview();
@@ -174,6 +175,10 @@ void loop()
     if (newDoorStatus == DOORSTATUSCLOSED)
     {
       status_isclosed();
+    }
+    if (newDoorStatus == DOORSTATUSMOVINGORSTOPPED)
+    {
+      status_ismovingorstopped();
     }
     if (newDoorStatus == DOORSTATUSEXTERNAL)
     {
@@ -316,6 +321,14 @@ void status_isclosed()
   hmi_setled_blinking(HMI_LED_DOORCLOSED, false);
   hmi_setled(HMI_LED_DOOROPEN, LOW);
   hmi_setled(HMI_LED_DOORCLOSED, HIGH);
+}
+
+/*
+ *  door is closed
+ */
+void status_ismovingorstopped()
+{
+  Serial.println("RUN: STATUS: DOORMOVINGORSTOPPED");
 }
 
 /*
