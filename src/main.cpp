@@ -1,7 +1,7 @@
 /* 
 * File:     main.cpp
 * Date:     19.01.2021
-* Version:  v0.1.2
+* Version:  v0.1.3
 * Author:   smhex
 */
 
@@ -37,7 +37,7 @@ EthernetClient ethClient;
 
 // global settings
 String application = "GarageDoorController";
-String version = "0.1.2";
+String version = "0.1.3";
 String author = "smhex";
 
 // global buffer for dealing with json packets
