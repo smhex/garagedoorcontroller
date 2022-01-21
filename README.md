@@ -22,3 +22,25 @@ The purpose of this controller is to provide connectivity to my Smarthome system
 - MQTT Broker [Mosquitto](https://mosquitto.org)
 
 # Configuration
+## Hardware Interface
+To control the door by sending commands and reading the status a simple io interface is needed. The required interface is well described [here](https://www.ralf-rathgeber.de/hausautomation/marantec.html). The interface to the Arduino MKR Zero (or any other compatible controller) requires 2 digital output and 2 digital inputs. On my controller the configuration is the following
+
+| PIN | Signal             | Type   |
+| --- | ------------------ | ------ |
+| D0  | Command Door Open  | Output |
+| D1  | Status Door Open   | Input  |
+| D2  | Command Door Close | Output |
+| D3  | Status Door Closed | Input  |
+
+If you want to use a different configuration the pins can be assigned in driveio.h
+
+```
+#define CMD_OPENDOOR_OUTPUT       0
+#define STATUS_DOORISOPEN_INPUT   1
+#define CMD_CLOSEDOOR_OUTPUT      2
+#define STATUS_DOORISCLOSED_INPUT 3
+```
+
+## Ethernet/MQTT interface
+
+## Homebridge
