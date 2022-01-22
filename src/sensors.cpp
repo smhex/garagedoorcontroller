@@ -5,7 +5,7 @@
  float temperature = 0;
  float humidity = 0;
  float pressure = 0;
- float illuminance = 0;
+ float illuminance = HOMEKIT_LOWER_LIMIT;
 
 /*
 * inits the MKR ENV shield

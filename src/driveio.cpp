@@ -129,6 +129,15 @@ void driveio_setdoorcommand(int Command)
 }
 
 /*
+ * Returns true if a command (open/close) is active at the moment. It is
+ * only true during the command pulse
+ * */
+bool driveio_doorcommandactive()
+{
+    return (commandOpenDoorActive || commandCloseDoorActive);
+}
+
+/*
 * Returns the state of the IO. Parameter "io" corresponds with one of
 * input or output pins
 */

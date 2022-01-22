@@ -1,7 +1,7 @@
 /* 
 * File:     main.cpp
 * Date:     19.01.2021
-* Version:  v0.1.3
+* Version:  v0.1.4
 * Author:   smhex
 */
 
@@ -37,7 +37,7 @@ EthernetClient ethClient;
 
 // global settings
 String application = "GarageDoorController";
-String version = "0.1.3";
+String version = "0.1.4";
 String author = "smhex";
 
 // global buffer for dealing with json packets
@@ -168,11 +168,11 @@ void loop()
   // check if door status was changed
   if (driveio_doorstatuschanged(&oldDoorStatus, &newDoorStatus))
   {
-    if (newDoorStatus == DOORSTATUSOPEN)
+    if ((newDoorStatus == DOORSTATUSOPEN) && (driveio_doorcommandactive()==false))
     {
       status_isopen();
     }
-    if (newDoorStatus == DOORSTATUSCLOSED)
+    if ((newDoorStatus == DOORSTATUSCLOSED) && (driveio_doorcommandactive()==false))
     {
       status_isclosed();
     }
@@ -383,7 +383,7 @@ void publish_sensor_values()
     sensorPressure["unit"] = "kPa";
 
     JsonObject sensorIlluminance = jsonSensorValuesDoc.createNestedObject("illuminance");
-    sensorIlluminance["value"] = toString(sensors_get_illuminance());
+    sensorIlluminance["value"] = toString(sensors_get_illuminance(),5);
     sensorIlluminance["unit"] = "lx";
 
     // prepare json payload for sensors topic
