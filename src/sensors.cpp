@@ -1,9 +1,11 @@
 #include <Arduino_MKRENV.h>
 
+#define HOMEKIT_LOWER_LIMIT 0.0001
+
  float temperature = 0;
  float humidity = 0;
  float pressure = 0;
- float illuminance = 0;
+ float illuminance = HOMEKIT_LOWER_LIMIT;
 
 /*
 * inits the MKR ENV shield
@@ -58,5 +60,9 @@ float sensors_get_pressure(){
 * returns current illuminance
 */
 float sensors_get_illuminance(){
+    if (illuminance < HOMEKIT_LOWER_LIMIT)
+    {
+        illuminance = HOMEKIT_LOWER_LIMIT;
+    }
     return illuminance;
 }
