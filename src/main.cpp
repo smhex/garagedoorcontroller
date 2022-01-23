@@ -145,6 +145,19 @@ void setup()
 
   // Initialize MQTT client
   mqtt_init();
+
+  // publish the current door status - this is necessary because the
+  // status is normally updated only if it has changed
+  // Note: mqtt_init() must be called before - otherwise the mqtt connection
+  // is not working
+  if (driveio_getcurrentdoorstatus()==DOORSTATUSOPEN)
+  {
+    mqtt_publish(MQTT_TOPICCONTROLGETCURRENTDOORSTATE, MQTT_STATUSDOOROPEN, true);
+  }
+  if (driveio_getcurrentdoorstatus()==DOORSTATUSCLOSED)
+  {
+    mqtt_publish(MQTT_TOPICCONTROLGETCURRENTDOORSTATE, MQTT_STATUSDOORCLOSED, true);
+  }
 }
 
 // main loop - reads/writes commands and sensor values
@@ -182,7 +195,7 @@ void loop()
     }
     if (newDoorStatus == DOORSTATUSEXTERNAL)
     {
-      mqtt_publish(MQTT_TOPICCONTROLCOMMANDSOURCE, MQTT_COMMANDSOURCEEXTERNAL);
+      mqtt_publish(MQTT_TOPICCONTROLCOMMANDSOURCE, MQTT_COMMANDSOURCEEXTERNAL, false);
     }
   }
 
@@ -260,9 +273,9 @@ void command_open(String fromSource)
   sprintf(buffer, "RUN: Command: DOOROPEN (source=%s)", fromSource.c_str());
   Serial.println(buffer);
 
-  mqtt_publish(MQTT_TOPICCONTROLGETNEWDOORSTATE, MQTT_COMMANDDOOROPEN);
-  mqtt_publish(MQTT_TOPICCONTROLGETCURRENTDOORSTATE, MQTT_STATUSDOOROPENING);
-  mqtt_publish(MQTT_TOPICCONTROLCOMMANDSOURCE, fromSource);
+  mqtt_publish(MQTT_TOPICCONTROLGETNEWDOORSTATE, MQTT_COMMANDDOOROPEN, false);
+  mqtt_publish(MQTT_TOPICCONTROLGETCURRENTDOORSTATE, MQTT_STATUSDOOROPENING, false);
+  mqtt_publish(MQTT_TOPICCONTROLCOMMANDSOURCE, fromSource, false);
 
   driveio_setdoorcommand(DOORCOMMANDOPEN);
 
@@ -280,9 +293,9 @@ void command_close(String fromSource)
   sprintf(buffer, "RUN: Command: DOORCLOSE (source=%s)", fromSource.c_str());
   Serial.println(buffer);
 
-  mqtt_publish(MQTT_TOPICCONTROLGETNEWDOORSTATE, MQTT_COMMANDDOORCLOSE);
-  mqtt_publish(MQTT_TOPICCONTROLGETCURRENTDOORSTATE, MQTT_STATUSDOORCLOSING);
-  mqtt_publish(MQTT_TOPICCONTROLCOMMANDSOURCE, fromSource);
+  mqtt_publish(MQTT_TOPICCONTROLGETNEWDOORSTATE, MQTT_COMMANDDOORCLOSE, false);
+  mqtt_publish(MQTT_TOPICCONTROLGETCURRENTDOORSTATE, MQTT_STATUSDOORCLOSING, false);
+  mqtt_publish(MQTT_TOPICCONTROLCOMMANDSOURCE, fromSource, false);
 
   driveio_setdoorcommand(DOORCOMMANDCLOSE);
 
@@ -298,8 +311,8 @@ void status_isopen()
 {
   Serial.println("RUN: STATUS: DOOROPEN");
 
-  mqtt_publish(MQTT_TOPICCONTROLGETCURRENTDOORSTATE, MQTT_STATUSDOOROPEN);
-  mqtt_publish(MQTT_TOPICCONTROLGETNEWDOORSTATE, MQTT_COMMANDDOOROPEN);
+  mqtt_publish(MQTT_TOPICCONTROLGETCURRENTDOORSTATE, MQTT_STATUSDOOROPEN, true);
+  mqtt_publish(MQTT_TOPICCONTROLGETNEWDOORSTATE, MQTT_COMMANDDOOROPEN, false);
 
   hmi_setled_blinking(HMI_LED_DOOROPEN, false);
   hmi_setled_blinking(HMI_LED_DOORCLOSED, false);
@@ -314,8 +327,8 @@ void status_isclosed()
 {
   Serial.println("RUN: STATUS: DOORCLOSED");
 
-  mqtt_publish(MQTT_TOPICCONTROLGETCURRENTDOORSTATE, MQTT_STATUSDOORCLOSED);
-  mqtt_publish(MQTT_TOPICCONTROLGETNEWDOORSTATE, MQTT_COMMANDDOORCLOSE);
+  mqtt_publish(MQTT_TOPICCONTROLGETCURRENTDOORSTATE, MQTT_STATUSDOORCLOSED, true);
+  mqtt_publish(MQTT_TOPICCONTROLGETNEWDOORSTATE, MQTT_COMMANDDOORCLOSE, false);
 
   hmi_setled_blinking(HMI_LED_DOOROPEN, false);
   hmi_setled_blinking(HMI_LED_DOORCLOSED, false);
@@ -390,7 +403,7 @@ void publish_sensor_values()
     // serialize json document into global buffer and publish
     // attention: size of buffer is limited to 256 bytes
     serializeJson(jsonSensorValuesDoc, jsonSensorValuesBuffer);
-    mqtt_publish("gdc/system/sensors", jsonSensorValuesBuffer);
+    mqtt_publish("gdc/system/sensors", jsonSensorValuesBuffer, false);
   }
 }
 

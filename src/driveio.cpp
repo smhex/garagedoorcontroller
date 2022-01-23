@@ -145,3 +145,11 @@ int driveio_getiostatus(int io)
 {
     return digitalRead(io);
 }
+
+/*
+* Returns the current door status 
+*/
+int driveio_getcurrentdoorstatus()
+{
+    return currentDoorStatus;
+}
