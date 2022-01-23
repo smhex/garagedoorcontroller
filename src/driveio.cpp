@@ -10,8 +10,7 @@ bool doorStatusIsClosed = false;
 bool doorStatusIsMovingOrStopped = false;
 bool doorStatusIsExternal = false;
 
-// length in ms for the command pulse
-int commandDuration = 500;
+// status of active commands
 bool commandOpenDoorActive = false;
 bool commandCloseDoorActive = false;
 
@@ -47,15 +46,15 @@ void driveio_loop()
     // read signals
     driveio_readiosignals();
 
-    /* To open or close the door a 500ms pulse is required at the 
-     * output pin(s). The pulse width can be configured via the
-     * variable "commandDuration". The rising edge is generated a 
+    /* To open or close the door a 500ms (default) pulse is required 
+     * at the output pin(s). The pulse width can be configured via the
+     * variable "commandDuration_ms". The rising edge is generated a 
      * soon as a driveio_setdoorcommand() is called. 
      */
     if (commandOpenDoorActive)
     {
         digitalWrite(CMD_OPENDOOR_OUTPUT, HIGH);
-        if (millis() > prev_ms_open + commandDuration){
+        if (millis() > prev_ms_open + commandDuration_ms){
                 digitalWrite(CMD_OPENDOOR_OUTPUT, LOW);
                 commandOpenDoorActive = false;
         }
@@ -63,7 +62,7 @@ void driveio_loop()
     if (commandCloseDoorActive)
     {  
          digitalWrite(CMD_CLOSEDOOR_OUTPUT, HIGH);  
-        if (millis() > prev_ms_close + commandDuration){
+        if (millis() > prev_ms_close + commandDuration_ms){
                 digitalWrite(CMD_CLOSEDOOR_OUTPUT, LOW);
                 commandCloseDoorActive = false;      
         }

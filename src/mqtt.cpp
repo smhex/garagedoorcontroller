@@ -7,14 +7,9 @@
 #include "config.h"
 #include "mqtt.h"
 
-// Global variables defined in main.cpp
-extern unsigned long uptime_in_sec;
-extern EthernetClient ethClient;
-
 // MQTT broker/topic configuration
 // 256 bytes need to publish the sensors topic
 MQTTPubSub::PubSubClient<256> mqttClient;
-
 
 String command ="";
 
@@ -145,7 +140,7 @@ void mqtt_loop()
         // publish uptime message and online status every 1s
         static uint32_t prev_ms = millis();
         char buffer[12];
-        sprintf(buffer, "%lu", uptime_in_sec);
+        sprintf(buffer, "%lu", uptime_in_secs);
         if (millis() > prev_ms + 1000)
         {
             prev_ms = millis();

@@ -24,7 +24,7 @@
 EthernetClient ethClient;
 
 // Heartbeat counter
-unsigned long uptime_in_sec = 0;
+unsigned long uptime_in_secs = 0;
 bool mainFirstRun = true;
 
 // Watchdog
@@ -128,7 +128,7 @@ void setup()
 void loop()
 {
   // calculate uptime in seconds
-  uptime_in_sec = (millis() - millisWhenStarted_ms) / 1000;
+  uptime_in_secs = (millis() - millisWhenStarted_ms) / 1000;
 
   // loop over all modules
   driveio_loop();
@@ -488,7 +488,7 @@ void show_page_system()
   unsigned int hours=0;
   unsigned int mins=0;
   unsigned int secs=0;
-  secs = uptime_in_sec;
+  secs = uptime_in_secs;
   mins=secs/60; 
   hours=mins/60; 
   days=hours/24; 

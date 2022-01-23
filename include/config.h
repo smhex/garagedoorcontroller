@@ -2,6 +2,7 @@
 #define __CONFIG_H_INCLUDED__
 
 #include <Arduino.h>
+#include <Ethernet.h>
 
 // define the input and output pins to control the drive
 // those pin numbers must match the circuit/schematic
@@ -33,9 +34,6 @@ extern IPAddress dns;
 extern IPAddress subnet;
 extern IPAddress gateway;
 
-// variable for timeout for OLED display in HMI module
-extern int displayTimeout_ms;
-
 // variables for MQTT settings
 extern const char mqttBrokerAddress[];
 extern const unsigned int mqttBrokerPort;
@@ -44,5 +42,13 @@ extern String mqttUsername;
 extern String mqttPassword;
 extern String mqttLastWillMsg;
 extern String mqttFirstWillMsg;
+
+// shared varaibles being used in more than one module - look in config.cpp 
+// for their initial values
+extern EthernetClient ethClient;
+extern int displayTimeout_ms;
+extern unsigned long uptime_in_secs;
+extern int ledBlinkDuration_ms;
+extern int commandDuration_ms;
 
 #endif // __CONFIG_H_INCLUDED__

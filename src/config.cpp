@@ -21,5 +21,11 @@ String mqttPassword = "mosquitto";
 String mqttLastWillMsg = "offline";
 String mqttFirstWillMsg = "online";
 
-// 30s timeout for OLED display in HMI module
+// duration for OLED display in HMI module being active after button press
 int displayTimeout_ms = 30000;
+
+// On/Off time in ms for the leds when door is moving
+int ledBlinkDuration_ms = 100;
+
+// duration in ms for the command pulse
+int commandDuration_ms = 500;
