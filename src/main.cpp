@@ -383,7 +383,7 @@ void publish_sensor_values()
     sensorPressure["unit"] = "kPa";
 
     JsonObject sensorIlluminance = jsonSensorValuesDoc.createNestedObject("illuminance");
-    sensorIlluminance["value"] = toString(sensors_get_illuminance(),5);
+    sensorIlluminance["value"] = toString(sensors_get_illuminance(),4);
     sensorIlluminance["unit"] = "lx";
 
     // prepare json payload for sensors topic
