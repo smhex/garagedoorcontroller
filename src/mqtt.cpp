@@ -4,25 +4,17 @@
 #include <Ethernet.h>
 #include <ArduinoJson.h>
 
+#include "config.h"
 #include "mqtt.h"
 
 // Global variables defined in main.cpp
 extern unsigned long uptime_in_sec;
-extern String application;
-extern String version;
-extern String author;
 extern EthernetClient ethClient;
 
 // MQTT broker/topic configuration
 // 256 bytes need to publish the sensors topic
 MQTTPubSub::PubSubClient<256> mqttClient;
-const char mqttBrokerAddress[] = "mosquitto.debes-online.com";
-const unsigned int mqttBrokerPort = 1883;
-String mqttClientID = "arduino-gdc";
-String mqttUsername = "mosquitto";
-String mqttPassword = "mosquitto";
-String mqttLastWillMsg = "offline";
-String mqttFirstWillMsg = "online";
+
 
 String command ="";
 

@@ -14,33 +14,14 @@
 #include <ArduinoJson.h>
 
 // Include local libraries/headers
+#include "config.h"
 #include "driveio.h"
 #include "hmi.h"
 #include "util.h"
 #include "mqtt.h"
 #include "sensors.h"
 
-#define PAGE_OVERVIEW 0
-#define PAGE_SENSORS 1
-#define PAGE_DRIVEIO 2
-#define PAGE_HMI 3
-#define PAGE_MQTT 4
-#define PAGE_SYSTEM 5
-
-// Network configuration - sets MAC and IP address
-byte mac[] = {0xDE, 0xAD, 0xBE, 0xEF, 0xFE, 0xED};
-IPAddress ip(192, 168, 30, 241);
-IPAddress dns(192, 168, 30, 1);
-IPAddress subnet(255, 255, 255, 0);
-IPAddress gateway(192, 168, 30, 1);
 EthernetClient ethClient;
-
-// global settings
-String application = "GarageDoorController";
-String version = "0.1.5";
-String author = "smhex";
-
-// global buffer for dealing with json packets
 
 // Heartbeat counter
 unsigned long uptime_in_sec = 0;
@@ -49,7 +30,7 @@ bool mainFirstRun = true;
 // Watchdog
 WDTZero watchdog;
 
-static unsigned long millisWhenStarted_ms;
+unsigned long millisWhenStarted_ms;
 int ledState = LOW;
 
 // maintain door status
@@ -60,8 +41,6 @@ int lastCommand = 0;
 // initial page to display on the display after system start
 int currentSystemInfoPage = PAGE_OVERVIEW;
 
-// 30s timeout for OLED display in HMI module
-int displayTimeout_ms = 30000;
 unsigned long prev_displayTimeout_ms = 0;
 bool displayIsOn = false;
 

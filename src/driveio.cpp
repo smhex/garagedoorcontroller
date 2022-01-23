@@ -1,4 +1,6 @@
 #include <Arduino.h>
+
+#include "config.h"
 #include "driveio.h"
 
 // internal variables holding the different door states
