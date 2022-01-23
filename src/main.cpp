@@ -1,7 +1,7 @@
 /* 
 * File:     main.cpp
 * Date:     19.01.2021
-* Version:  v0.1.4
+* Version:  v0.1.5
 * Author:   smhex
 */
 
@@ -37,7 +37,7 @@ EthernetClient ethClient;
 
 // global settings
 String application = "GarageDoorController";
-String version = "0.1.4";
+String version = "0.1.5";
 String author = "smhex";
 
 // global buffer for dealing with json packets
@@ -49,16 +49,15 @@ bool mainFirstRun = true;
 // Watchdog
 WDTZero watchdog;
 
-static unsigned long last_milliseconds;
+static unsigned long millisWhenStarted_ms;
 int ledState = LOW;
 
 // maintain door status
 int oldDoorStatus = 0;
 int newDoorStatus = 0;
-
-// maintain door command
 int lastCommand = 0;
 
+// initial page to display on the display after system start
 int currentSystemInfoPage = PAGE_OVERVIEW;
 
 // 30s timeout for OLED display in HMI module
@@ -87,7 +86,6 @@ void show_page_system();
 // setup the board an all variables
 void setup()
 {
-
   // Init serial line with 9600 baud and wait 5s to get a terminal connected
   Serial.begin(9600);
   delay(2000);
@@ -95,11 +93,11 @@ void setup()
   // setup watchdog
   watchdog_init();
 
-  // Initialize display
+  // initialize display
   hmi_init();
 
   // store offset for uptime counter
-  last_milliseconds = millis();
+  millisWhenStarted_ms = millis();
 
   // show initial screen
   displayIsOn = true;
@@ -151,7 +149,7 @@ void setup()
 void loop()
 {
   // calculate uptime in seconds
-  uptime_in_sec = (millis() - last_milliseconds) / 1000;
+  uptime_in_sec = (millis() - millisWhenStarted_ms) / 1000;
 
   // loop over all modules
   driveio_loop();
