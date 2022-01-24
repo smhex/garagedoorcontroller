@@ -18,9 +18,13 @@ int numPacketsSent = 0;
 
 bool mqttFirstRun = true;
 bool mqttInitialized = false;
+bool isRestartRequested = false;
 
-// handler for mqtt receive
+// handler for subscribed topics (mqtt receive)
 void onTopicControlSetNewDoorStateReceived(const String &payload, const size_t size);
+void onTopicSystemRestartReceived(const String &payload, const size_t size);
+
+// publishes the given topic with the given payload
 void mqtt_publish(String topic, String payload);
 
 /*
@@ -59,8 +63,9 @@ void mqtt_init()
     mqttInitialized = true;
     mqttFirstRun = true;
 
-    // Subscribe command topic
+    // Subscribe command and restart topic
     mqttClient.subscribe(MQTT_TOPICCONTROLSETNEWDOORSTATE, &onTopicControlSetNewDoorStateReceived);
+    mqttClient.subscribe(MQTT_TOPICSYSTEM_RESTART, &onTopicSystemRestartReceived);
 }
 
 /*
@@ -86,13 +91,35 @@ void onTopicControlSetNewDoorStateReceived(const String &payload, const size_t s
 }
 
 /*
+ * This handler is called when a subscribed topic (the restart) is received.
+ */
+void onTopicSystemRestartReceived(const String &payload, const size_t size)
+{
+    char buffer[80];
+    numPacketsReceived++;
+
+    if (payload != MQTT_SYSTEMRESTART)
+    {
+        sprintf(buffer,"RUN: Subscribe: set %s to %s (invalid)", MQTT_TOPICSYSTEM_RESTART, payload.c_str());
+        Serial.println(buffer);
+    }
+    else
+    {
+        sprintf(buffer,"RUN: Subscribe: set %s to %s", MQTT_TOPICSYSTEM_RESTART, payload.c_str());
+        Serial.println(buffer);
+        isRestartRequested = true;
+        mqtt_publish(MQTT_TOPICSYSTEM_RESTART, "", false);
+      }
+}
+
+/*
  * This function publishes a topic. It passes the parameters without change to the
  * underlying mqtt client but adds a serial print for logging purposes
  */
 void mqtt_publish(String topic, String payload, bool retain)
 {
     Serial.println("RUN: Publish: set " + topic + " to " + payload);
-    mqttClient.publish(topic, payload, false, 0);
+    mqttClient.publish(topic, payload, retain, 0);
     numPacketsSent++;
 }
 
@@ -174,7 +201,7 @@ int mqtt_getpacketssent()
 }
 
 /*
-* Retruns true if the client is connected to a broker
+* Returns true if the client is connected to a broker
 */
 bool mqtt_isconnected()
 {
@@ -183,4 +210,12 @@ bool mqtt_isconnected()
         retval = mqttClient.isConnected();
     }
     return retval;
+}
+
+/*
+* Returns true if a restart request was sent via mqtt
+*/
+bool mqtt_isrestartrequested()
+{
+    return isRestartRequested;
 }
