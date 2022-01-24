@@ -124,16 +124,19 @@ void setup()
   mqtt_init();
 
   // publish the current door status - this is necessary because the
-  // status is normally updated only if it has changed
+  // status is normally updated only if it has changed - if Homebridge
+  // is restarted in between this helps to set the initial state in Homekit
   // Note: mqtt_init() must be called before - otherwise the mqtt connection
   // is not working
   if (driveio_getcurrentdoorstatus()==DOORSTATUSOPEN)
   {
     mqtt_publish(MQTT_TOPICCONTROLGETCURRENTDOORSTATE, MQTT_STATUSDOOROPEN, true);
+    mqtt_publish(MQTT_TOPICCONTROLGETNEWDOORSTATE, MQTT_COMMANDDOOROPEN, true);
   }
   if (driveio_getcurrentdoorstatus()==DOORSTATUSCLOSED)
   {
     mqtt_publish(MQTT_TOPICCONTROLGETCURRENTDOORSTATE, MQTT_STATUSDOORCLOSED, true);
+    mqtt_publish(MQTT_TOPICCONTROLGETNEWDOORSTATE, MQTT_COMMANDDOORCLOSE, true);
   }
 }
 
@@ -152,8 +155,12 @@ void loop()
   // gets the current sensor values and sends them via mqtt
   publish_sensor_values();
 
-  // trigger the watchdog
-  watchdog_reset();
+  // trigger the watchdog if there is no restart requested
+  // note: the restart is executed after the watchdog timeout has reached (default 16s)
+  if (!mqtt_isrestartrequested())
+  {
+    watchdog_reset();
+  }
 
   // check if door status was changed
   if (driveio_doorstatuschanged(&oldDoorStatus, &newDoorStatus))
@@ -250,8 +257,8 @@ void command_open(String fromSource)
   sprintf(buffer, "RUN: Command: DOOROPEN (source=%s)", fromSource.c_str());
   Serial.println(buffer);
 
-  mqtt_publish(MQTT_TOPICCONTROLGETNEWDOORSTATE, MQTT_COMMANDDOOROPEN, false);
-  mqtt_publish(MQTT_TOPICCONTROLGETCURRENTDOORSTATE, MQTT_STATUSDOOROPENING, false);
+  mqtt_publish(MQTT_TOPICCONTROLGETNEWDOORSTATE, MQTT_COMMANDDOOROPEN, true);
+  mqtt_publish(MQTT_TOPICCONTROLGETCURRENTDOORSTATE, MQTT_STATUSDOOROPENING, true);
   mqtt_publish(MQTT_TOPICCONTROLCOMMANDSOURCE, fromSource, false);
 
   driveio_setdoorcommand(DOORCOMMANDOPEN);
@@ -270,8 +277,8 @@ void command_close(String fromSource)
   sprintf(buffer, "RUN: Command: DOORCLOSE (source=%s)", fromSource.c_str());
   Serial.println(buffer);
 
-  mqtt_publish(MQTT_TOPICCONTROLGETNEWDOORSTATE, MQTT_COMMANDDOORCLOSE, false);
-  mqtt_publish(MQTT_TOPICCONTROLGETCURRENTDOORSTATE, MQTT_STATUSDOORCLOSING, false);
+  mqtt_publish(MQTT_TOPICCONTROLGETNEWDOORSTATE, MQTT_COMMANDDOORCLOSE, true);
+  mqtt_publish(MQTT_TOPICCONTROLGETCURRENTDOORSTATE, MQTT_STATUSDOORCLOSING, true);
   mqtt_publish(MQTT_TOPICCONTROLCOMMANDSOURCE, fromSource, false);
 
   driveio_setdoorcommand(DOORCOMMANDCLOSE);
@@ -289,7 +296,7 @@ void status_isopen()
   Serial.println("RUN: STATUS: DOOROPEN");
 
   mqtt_publish(MQTT_TOPICCONTROLGETCURRENTDOORSTATE, MQTT_STATUSDOOROPEN, true);
-  mqtt_publish(MQTT_TOPICCONTROLGETNEWDOORSTATE, MQTT_COMMANDDOOROPEN, false);
+  mqtt_publish(MQTT_TOPICCONTROLGETNEWDOORSTATE, MQTT_COMMANDDOOROPEN, true);
 
   hmi_setled_blinking(HMI_LED_DOOROPEN, false);
   hmi_setled_blinking(HMI_LED_DOORCLOSED, false);
@@ -305,7 +312,7 @@ void status_isclosed()
   Serial.println("RUN: STATUS: DOORCLOSED");
 
   mqtt_publish(MQTT_TOPICCONTROLGETCURRENTDOORSTATE, MQTT_STATUSDOORCLOSED, true);
-  mqtt_publish(MQTT_TOPICCONTROLGETNEWDOORSTATE, MQTT_COMMANDDOORCLOSE, false);
+  mqtt_publish(MQTT_TOPICCONTROLGETNEWDOORSTATE, MQTT_COMMANDDOORCLOSE, true);
 
   hmi_setled_blinking(HMI_LED_DOOROPEN, false);
   hmi_setled_blinking(HMI_LED_DOORCLOSED, false);
