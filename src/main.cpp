@@ -1,10 +1,3 @@
-/* 
-* File:     main.cpp
-* Date:     19.01.2021
-* Version:  v0.1.5
-* Author:   smhex
-*/
-
 // Include libraries
 #include <Arduino.h>
 
