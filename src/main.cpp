@@ -1,7 +1,7 @@
 /* 
 * File:     main.cpp
 * Date:     19.01.2021
-* Version:  v0.1.4
+* Version:  v0.1.5
 * Author:   smhex
 */
 
@@ -14,55 +14,33 @@
 #include <ArduinoJson.h>
 
 // Include local libraries/headers
+#include "config.h"
 #include "driveio.h"
 #include "hmi.h"
 #include "util.h"
 #include "mqtt.h"
 #include "sensors.h"
 
-#define PAGE_OVERVIEW 0
-#define PAGE_SENSORS 1
-#define PAGE_DRIVEIO 2
-#define PAGE_HMI 3
-#define PAGE_MQTT 4
-#define PAGE_SYSTEM 5
-
-// Network configuration - sets MAC and IP address
-byte mac[] = {0xDE, 0xAD, 0xBE, 0xEF, 0xFE, 0xED};
-IPAddress ip(192, 168, 30, 241);
-IPAddress dns(192, 168, 30, 1);
-IPAddress subnet(255, 255, 255, 0);
-IPAddress gateway(192, 168, 30, 1);
 EthernetClient ethClient;
 
-// global settings
-String application = "GarageDoorController";
-String version = "0.1.4";
-String author = "smhex";
-
-// global buffer for dealing with json packets
-
 // Heartbeat counter
-unsigned long uptime_in_sec = 0;
+unsigned long uptime_in_secs = 0;
 bool mainFirstRun = true;
 
 // Watchdog
 WDTZero watchdog;
 
-static unsigned long last_milliseconds;
+unsigned long millisWhenStarted_ms;
 int ledState = LOW;
 
 // maintain door status
 int oldDoorStatus = 0;
 int newDoorStatus = 0;
-
-// maintain door command
 int lastCommand = 0;
 
+// initial page to display on the display after system start
 int currentSystemInfoPage = PAGE_OVERVIEW;
 
-// 30s timeout for OLED display in HMI module
-int displayTimeout_ms = 30000;
 unsigned long prev_displayTimeout_ms = 0;
 bool displayIsOn = false;
 
@@ -87,7 +65,6 @@ void show_page_system();
 // setup the board an all variables
 void setup()
 {
-
   // Init serial line with 9600 baud and wait 5s to get a terminal connected
   Serial.begin(9600);
   delay(2000);
@@ -95,11 +72,11 @@ void setup()
   // setup watchdog
   watchdog_init();
 
-  // Initialize display
+  // initialize display
   hmi_init();
 
   // store offset for uptime counter
-  last_milliseconds = millis();
+  millisWhenStarted_ms = millis();
 
   // show initial screen
   displayIsOn = true;
@@ -164,7 +141,7 @@ void setup()
 void loop()
 {
   // calculate uptime in seconds
-  uptime_in_sec = (millis() - last_milliseconds) / 1000;
+  uptime_in_secs = (millis() - millisWhenStarted_ms) / 1000;
 
   // loop over all modules
   driveio_loop();
@@ -524,7 +501,7 @@ void show_page_system()
   unsigned int hours=0;
   unsigned int mins=0;
   unsigned int secs=0;
-  secs = uptime_in_sec;
+  secs = uptime_in_secs;
   mins=secs/60; 
   hours=mins/60; 
   days=hours/24; 

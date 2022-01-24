@@ -8,13 +8,6 @@
 #define DOORCOMMANDOPEN             1
 #define DOORCOMMANDCLOSE            2
 
-// define the input and output pins to control the drive
-// those pin numbers must match the circuit/schematic
-#define CMD_OPENDOOR_OUTPUT       0
-#define STATUS_DOORISOPEN_INPUT   1
-#define CMD_CLOSEDOOR_OUTPUT      2
-#define STATUS_DOORISCLOSED_INPUT 3
-
 /* exports */
 void driveio_init();
 void driveio_loop();
