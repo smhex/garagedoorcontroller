@@ -32,7 +32,7 @@ To control the door by sending commands and reading the status a simple io inter
 | D2  | Command Door Close | Output |
 | D3  | Status Door Closed | Input  |
 
-If you want to use a different configuration the pins can be assigned in driveio.h
+If you want to use a different configuration the pins can be assigned in *config.h*
 
 ```
 #define CMD_OPENDOOR_OUTPUT       0
@@ -42,7 +42,7 @@ If you want to use a different configuration the pins can be assigned in driveio
 ```
 
 ## Ethernet/MQTT interface
-This solution uses a wired Ethernet interface. The network configuration is static. If you want to use your own configuration please change the following settings in main.cpp before downloading the sketch. Adapting the code for using with a Wifi Shield should be easy.
+This solution uses a wired Ethernet interface. The network configuration is static. If you want to use your own configuration please change the following settings in *config.cpp* before downloading the sketch. Adapting the code for using with a Wifi Shield should be easy.
 
 ```
 byte mac[] = {0xDE, 0xAD, 0xBE, 0xEF, 0xFE, 0xED};
@@ -52,7 +52,7 @@ IPAddress subnet(255, 255, 255, 0);
 IPAddress gateway(192, 168, 30, 1);
 ```
 
-The MQTT functionality is implemented using the MQTTPubSubClient library. There are some configuration settings in mqtt.cpp.
+The MQTT functionality is implemented using the MQTTPubSubClient library. There are some configuration settings in *config.cpp*.
 
 ```
 const char mqttBrokerAddress[] = "mosquitto.debes-online.com";
@@ -71,8 +71,21 @@ The interface to Homebrigde is basically the MQTT broker. The garage door contro
 
 ```
 {
-    "logMqtt": true,
+    "name": "Garage",
+    "accessory": "mqttthing",
+    "type": "garageDoorOpener",
     "url": "mqtt://mosquitto.debes-online.com:1883",
+    "username": "mosquitto",
+    "password": "mosquitto",
+    "logMqtt": true,
+    "mqttOptions": {
+        "keepalive": 60
+    },
+    "topics": {
+        "getCurrentDoorState": "gdc/control/getcurrentdoorstate",
+        "setTargetDoorState": "gdc/control/setnewdoorstate",
+        "getTargetDoorState": "gdc/control/getnewdoorstate"
+    }
     "doorTargetValues": [
         "open",
         "close"
@@ -84,20 +97,7 @@ The interface to Homebrigde is basically the MQTT broker. The garage door contro
         "closing",
         "stopped"
     ],
-    "mqttOptions": {
-        "keepalive": 60
-    },
-    "name": "Garage",
-    "password": "mosquitto",
-    "accessory": "mqttthing",
-    "type": "garageDoorOpener",
-    "username": "mosquitto",
-    "topics": {
-        "getCurrentDoorState": "gdc/control/getcurrentdoorstate",
-        "setTargetDoorState": "gdc/control/setnewdoorstate",
-        "getTargetDoorState": "gdc/control/getnewdoorstate"
-    }
 }
 ```
 
-Please make sure that you use the same credentials and broker as configured earlier in the source code.
+Please make sure that you use the same credentials and broker settings as configured earlier in the source code.

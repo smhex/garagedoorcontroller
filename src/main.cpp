@@ -1,7 +1,7 @@
 /* 
 * File:     main.cpp
 * Date:     19.01.2021
-* Version:  v0.1.4
+* Version:  v0.1.5
 * Author:   smhex
 */
 
@@ -14,55 +14,33 @@
 #include <ArduinoJson.h>
 
 // Include local libraries/headers
+#include "config.h"
 #include "driveio.h"
 #include "hmi.h"
 #include "util.h"
 #include "mqtt.h"
 #include "sensors.h"
 
-#define PAGE_OVERVIEW 0
-#define PAGE_SENSORS 1
-#define PAGE_DRIVEIO 2
-#define PAGE_HMI 3
-#define PAGE_MQTT 4
-#define PAGE_SYSTEM 5
-
-// Network configuration - sets MAC and IP address
-byte mac[] = {0xDE, 0xAD, 0xBE, 0xEF, 0xFE, 0xED};
-IPAddress ip(192, 168, 30, 241);
-IPAddress dns(192, 168, 30, 1);
-IPAddress subnet(255, 255, 255, 0);
-IPAddress gateway(192, 168, 30, 1);
 EthernetClient ethClient;
 
-// global settings
-String application = "GarageDoorController";
-String version = "0.1.4";
-String author = "smhex";
-
-// global buffer for dealing with json packets
-
 // Heartbeat counter
-unsigned long uptime_in_sec = 0;
+unsigned long uptime_in_secs = 0;
 bool mainFirstRun = true;
 
 // Watchdog
 WDTZero watchdog;
 
-static unsigned long last_milliseconds;
+unsigned long millisWhenStarted_ms;
 int ledState = LOW;
 
 // maintain door status
 int oldDoorStatus = 0;
 int newDoorStatus = 0;
-
-// maintain door command
 int lastCommand = 0;
 
+// initial page to display on the display after system start
 int currentSystemInfoPage = PAGE_OVERVIEW;
 
-// 30s timeout for OLED display in HMI module
-int displayTimeout_ms = 30000;
 unsigned long prev_displayTimeout_ms = 0;
 bool displayIsOn = false;
 
@@ -87,7 +65,6 @@ void show_page_system();
 // setup the board an all variables
 void setup()
 {
-
   // Init serial line with 9600 baud and wait 5s to get a terminal connected
   Serial.begin(9600);
   delay(2000);
@@ -95,11 +72,11 @@ void setup()
   // setup watchdog
   watchdog_init();
 
-  // Initialize display
+  // initialize display
   hmi_init();
 
   // store offset for uptime counter
-  last_milliseconds = millis();
+  millisWhenStarted_ms = millis();
 
   // show initial screen
   displayIsOn = true;
@@ -145,13 +122,26 @@ void setup()
 
   // Initialize MQTT client
   mqtt_init();
+
+  // publish the current door status - this is necessary because the
+  // status is normally updated only if it has changed
+  // Note: mqtt_init() must be called before - otherwise the mqtt connection
+  // is not working
+  if (driveio_getcurrentdoorstatus()==DOORSTATUSOPEN)
+  {
+    mqtt_publish(MQTT_TOPICCONTROLGETCURRENTDOORSTATE, MQTT_STATUSDOOROPEN, true);
+  }
+  if (driveio_getcurrentdoorstatus()==DOORSTATUSCLOSED)
+  {
+    mqtt_publish(MQTT_TOPICCONTROLGETCURRENTDOORSTATE, MQTT_STATUSDOORCLOSED, true);
+  }
 }
 
 // main loop - reads/writes commands and sensor values
 void loop()
 {
   // calculate uptime in seconds
-  uptime_in_sec = (millis() - last_milliseconds) / 1000;
+  uptime_in_secs = (millis() - millisWhenStarted_ms) / 1000;
 
   // loop over all modules
   driveio_loop();
@@ -182,7 +172,7 @@ void loop()
     }
     if (newDoorStatus == DOORSTATUSEXTERNAL)
     {
-      mqtt_publish(MQTT_TOPICCONTROLCOMMANDSOURCE, MQTT_COMMANDSOURCEEXTERNAL);
+      mqtt_publish(MQTT_TOPICCONTROLCOMMANDSOURCE, MQTT_COMMANDSOURCEEXTERNAL, false);
     }
   }
 
@@ -260,9 +250,9 @@ void command_open(String fromSource)
   sprintf(buffer, "RUN: Command: DOOROPEN (source=%s)", fromSource.c_str());
   Serial.println(buffer);
 
-  mqtt_publish(MQTT_TOPICCONTROLGETNEWDOORSTATE, MQTT_COMMANDDOOROPEN);
-  mqtt_publish(MQTT_TOPICCONTROLGETCURRENTDOORSTATE, MQTT_STATUSDOOROPENING);
-  mqtt_publish(MQTT_TOPICCONTROLCOMMANDSOURCE, fromSource);
+  mqtt_publish(MQTT_TOPICCONTROLGETNEWDOORSTATE, MQTT_COMMANDDOOROPEN, false);
+  mqtt_publish(MQTT_TOPICCONTROLGETCURRENTDOORSTATE, MQTT_STATUSDOOROPENING, false);
+  mqtt_publish(MQTT_TOPICCONTROLCOMMANDSOURCE, fromSource, false);
 
   driveio_setdoorcommand(DOORCOMMANDOPEN);
 
@@ -280,9 +270,9 @@ void command_close(String fromSource)
   sprintf(buffer, "RUN: Command: DOORCLOSE (source=%s)", fromSource.c_str());
   Serial.println(buffer);
 
-  mqtt_publish(MQTT_TOPICCONTROLGETNEWDOORSTATE, MQTT_COMMANDDOORCLOSE);
-  mqtt_publish(MQTT_TOPICCONTROLGETCURRENTDOORSTATE, MQTT_STATUSDOORCLOSING);
-  mqtt_publish(MQTT_TOPICCONTROLCOMMANDSOURCE, fromSource);
+  mqtt_publish(MQTT_TOPICCONTROLGETNEWDOORSTATE, MQTT_COMMANDDOORCLOSE, false);
+  mqtt_publish(MQTT_TOPICCONTROLGETCURRENTDOORSTATE, MQTT_STATUSDOORCLOSING, false);
+  mqtt_publish(MQTT_TOPICCONTROLCOMMANDSOURCE, fromSource, false);
 
   driveio_setdoorcommand(DOORCOMMANDCLOSE);
 
@@ -298,8 +288,8 @@ void status_isopen()
 {
   Serial.println("RUN: STATUS: DOOROPEN");
 
-  mqtt_publish(MQTT_TOPICCONTROLGETCURRENTDOORSTATE, MQTT_STATUSDOOROPEN);
-  mqtt_publish(MQTT_TOPICCONTROLGETNEWDOORSTATE, MQTT_COMMANDDOOROPEN);
+  mqtt_publish(MQTT_TOPICCONTROLGETCURRENTDOORSTATE, MQTT_STATUSDOOROPEN, true);
+  mqtt_publish(MQTT_TOPICCONTROLGETNEWDOORSTATE, MQTT_COMMANDDOOROPEN, false);
 
   hmi_setled_blinking(HMI_LED_DOOROPEN, false);
   hmi_setled_blinking(HMI_LED_DOORCLOSED, false);
@@ -314,8 +304,8 @@ void status_isclosed()
 {
   Serial.println("RUN: STATUS: DOORCLOSED");
 
-  mqtt_publish(MQTT_TOPICCONTROLGETCURRENTDOORSTATE, MQTT_STATUSDOORCLOSED);
-  mqtt_publish(MQTT_TOPICCONTROLGETNEWDOORSTATE, MQTT_COMMANDDOORCLOSE);
+  mqtt_publish(MQTT_TOPICCONTROLGETCURRENTDOORSTATE, MQTT_STATUSDOORCLOSED, true);
+  mqtt_publish(MQTT_TOPICCONTROLGETNEWDOORSTATE, MQTT_COMMANDDOORCLOSE, false);
 
   hmi_setled_blinking(HMI_LED_DOOROPEN, false);
   hmi_setled_blinking(HMI_LED_DOORCLOSED, false);
@@ -390,7 +380,7 @@ void publish_sensor_values()
     // serialize json document into global buffer and publish
     // attention: size of buffer is limited to 256 bytes
     serializeJson(jsonSensorValuesDoc, jsonSensorValuesBuffer);
-    mqtt_publish("gdc/system/sensors", jsonSensorValuesBuffer);
+    mqtt_publish("gdc/system/sensors", jsonSensorValuesBuffer, false);
   }
 }
 
@@ -511,7 +501,7 @@ void show_page_system()
   unsigned int hours=0;
   unsigned int mins=0;
   unsigned int secs=0;
-  secs = uptime_in_sec;
+  secs = uptime_in_secs;
   mins=secs/60; 
   hours=mins/60; 
   days=hours/24; 

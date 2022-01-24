@@ -4,25 +4,12 @@
 #include <Ethernet.h>
 #include <ArduinoJson.h>
 
+#include "config.h"
 #include "mqtt.h"
-
-// Global variables defined in main.cpp
-extern unsigned long uptime_in_sec;
-extern String application;
-extern String version;
-extern String author;
-extern EthernetClient ethClient;
 
 // MQTT broker/topic configuration
 // 256 bytes need to publish the sensors topic
 MQTTPubSub::PubSubClient<256> mqttClient;
-const char mqttBrokerAddress[] = "mosquitto.debes-online.com";
-const unsigned int mqttBrokerPort = 1883;
-String mqttClientID = "arduino-gdc";
-String mqttUsername = "mosquitto";
-String mqttPassword = "mosquitto";
-String mqttLastWillMsg = "offline";
-String mqttFirstWillMsg = "online";
 
 String command ="";
 
@@ -102,7 +89,7 @@ void onTopicControlSetNewDoorStateReceived(const String &payload, const size_t s
  * This function publishes a topic. It passes the parameters without change to the
  * underlying mqtt client but adds a serial print for logging purposes
  */
-void mqtt_publish(String topic, String payload)
+void mqtt_publish(String topic, String payload, bool retain)
 {
     Serial.println("RUN: Publish: set " + topic + " to " + payload);
     mqttClient.publish(topic, payload, false, 0);
@@ -153,7 +140,7 @@ void mqtt_loop()
         // publish uptime message and online status every 1s
         static uint32_t prev_ms = millis();
         char buffer[12];
-        sprintf(buffer, "%lu", uptime_in_sec);
+        sprintf(buffer, "%lu", uptime_in_secs);
         if (millis() > prev_ms + 1000)
         {
             prev_ms = millis();

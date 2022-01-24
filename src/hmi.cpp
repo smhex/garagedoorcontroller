@@ -3,6 +3,7 @@
 #include <Wire.h>
 #include <Adafruit_MCP23008.h>
 
+#include "config.h"
 #include "hmi.h"
 
 // internal defines
@@ -14,13 +15,7 @@ int debounce_button_ms = 100;
 
 bool doorOpenLedBlink = false;
 bool doorClosedLedBlink = false;
-int ledBlinkDuration = 100;
 
-// Global variables
-extern unsigned long uptime_in_sec;
-extern String application;
-extern String version;
-extern String author;
 
 // Display shield with button
 U8G2_SH1106_128X64_NONAME_F_HW_I2C u8g2(U8G2_R0, /* reset=*/U8X8_PIN_NONE);
@@ -109,7 +104,7 @@ void hmi_loop()
     if (doorOpenLedBlink)
     {
         static uint32_t prev_ms_on = millis();
-        if (millis() > prev_ms_on + ledBlinkDuration)
+        if (millis() > prev_ms_on + ledBlinkDuration_ms)
         {
             prev_ms_on = millis();
             int ledState = hmi_getled(HMI_LED_DOOROPEN);
@@ -120,7 +115,7 @@ void hmi_loop()
     if (doorClosedLedBlink)
     {
         static uint32_t prev_ms_on = millis();
-        if (millis() > prev_ms_on + ledBlinkDuration)
+        if (millis() > prev_ms_on + ledBlinkDuration_ms)
         {
             prev_ms_on = millis();
             int ledState = hmi_getled(HMI_LED_DOORCLOSED);
