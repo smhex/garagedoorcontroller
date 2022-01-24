@@ -28,7 +28,7 @@
 /* exports */
 void mqtt_init();
 void mqtt_loop();
-void mqtt_publish(String topic, String payload);
+void mqtt_publish(String topic, String payload, bool retain);
 String mqtt_getcommand();
 int mqtt_getpacketsreceived();
 int mqtt_getpacketssent();

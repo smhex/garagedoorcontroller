@@ -21,4 +21,5 @@ void driveio_loop();
 bool driveio_doorstatuschanged(int* oldStatus, int* newStatus);
 void driveio_setdoorcommand(int Command);
 int driveio_getiostatus(int io);
+int driveio_getcurrentdoorstatus();
 bool driveio_doorcommandactive();

@@ -102,7 +102,7 @@ void onTopicControlSetNewDoorStateReceived(const String &payload, const size_t s
  * This function publishes a topic. It passes the parameters without change to the
  * underlying mqtt client but adds a serial print for logging purposes
  */
-void mqtt_publish(String topic, String payload)
+void mqtt_publish(String topic, String payload, bool retain)
 {
     Serial.println("RUN: Publish: set " + topic + " to " + payload);
     mqttClient.publish(topic, payload, false, 0);
