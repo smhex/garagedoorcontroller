@@ -2,7 +2,7 @@
 
 // this information is shown on the OLED display and also sent to the MQTT broker
 String application = "GarageDoorController";
-String version = "0.1.6";
+String version = "0.1.7";
 String author = "smhex";
 
 // Network configuration - sets MAC and IP address
