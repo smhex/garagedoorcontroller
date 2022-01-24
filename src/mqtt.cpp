@@ -118,7 +118,7 @@ void onTopicSystemRestartReceived(const String &payload, const size_t size)
 void mqtt_publish(String topic, String payload, bool retain)
 {
     Serial.println("RUN: Publish: set " + topic + " to " + payload);
-    mqttClient.publish(topic, payload, false, 0);
+    mqttClient.publish(topic, payload, retain, 0);
     numPacketsSent++;
 }
 
