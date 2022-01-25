@@ -108,6 +108,8 @@ void onTopicSystemRestartReceived(const String &payload, const size_t size)
         sprintf(buffer,"RUN: Subscribe: set %s to %s", MQTT_TOPICSYSTEM_RESTART, payload.c_str());
         Serial.println(buffer);
         isRestartRequested = true;
+
+        // remove topic by sending empty payload
         mqtt_publish(MQTT_TOPICSYSTEM_RESTART, "", false);
       }
 }
