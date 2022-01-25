@@ -18,7 +18,6 @@ EthernetClient ethClient;
 
 // Heartbeat counter
 unsigned long uptime_in_secs = 0;
-bool mainFirstRun = true;
 
 // Watchdog
 WDTZero watchdog;
@@ -41,7 +40,7 @@ bool displayIsOn = false;
 void watchdog_init();
 void watchdog_reset();
 void watchdog_onShutdown();
-void publish_sensor_values();
+void publish_sensor_values(bool now);
 void command_open(String fromSource);
 void command_close(String fromSource);
 void status_isopen();
@@ -131,6 +130,9 @@ void setup()
     mqtt_publish(MQTT_TOPICCONTROLGETCURRENTDOORSTATE, MQTT_STATUSDOORCLOSED, true);
     mqtt_publish(MQTT_TOPICCONTROLGETNEWDOORSTATE, MQTT_COMMANDDOORCLOSE, true);
   }
+
+  // gets the current sensor values and sends them via mqtt
+  publish_sensor_values(true);
 }
 
 // main loop - reads/writes commands and sensor values
@@ -146,7 +148,7 @@ void loop()
   mqtt_loop();
 
   // gets the current sensor values and sends them via mqtt
-  publish_sensor_values();
+  publish_sensor_values(false);
 
   // trigger the watchdog if there is no restart requested
   // note: the restart is executed after the watchdog timeout has reached (default 16s)
@@ -238,7 +240,6 @@ void loop()
       hmi_display_off(displayIsOn);
     }
   }
-  mainFirstRun = false;
 }
 
 /*
@@ -351,10 +352,12 @@ void show_systeminfo()
 
 /*
  * Gets all the sensor values and publishes them as json string
+ * Parmeter Now immediatey send a sensor update otherwise it sleeps
+ * 10 seconds until the next update is sent
  */
-void publish_sensor_values()
+void publish_sensor_values(bool now)
 {
-  if (timespan_ten_seconds() | mainFirstRun)
+  if (timespan_ten_seconds() | now)
   {
     // json document
     DynamicJsonDocument jsonSensorValuesDoc(256);
