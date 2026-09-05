@@ -2,6 +2,7 @@
 #include <stdio.h>
 #include <string.h>
 #include <string>
+#include <limits.h>
 #include "Arduino.h"
 #include "config.h"
 #include "driveio.h"
@@ -134,6 +135,33 @@ static void test_logging() {
     assert(tiny == '\0');
 }
 
+static void test_pulse_timing() {
+    for (int command : {DOORCOMMANDOPEN, DOORCOMMANDCLOSE}) {
+        const int pin = command == DOORCOMMANDOPEN ? CMD_OPENDOOR_OUTPUT : CMD_CLOSEDOOR_OUTPUT;
+        for (unsigned long start : {10000UL, ULONG_MAX - 200UL}) {
+            now_ms = start - 1000UL;
+            driveio_setdoorcommand(command);
+            // A delayed first loop must not shorten the actual HIGH pulse.
+            assert(pins[pin] == LOW);
+            now_ms = start;
+            driveio_loop();
+            assert(pins[pin] == HIGH);
+            now_ms = start + 499UL;
+            driveio_loop();
+            assert(pins[pin] == HIGH);
+            now_ms = start + 500UL;
+            driveio_loop();
+            assert(pins[pin] == LOW);
+            assert(!driveio_doorcommandactive());
+            int reportedPin = -1;
+            unsigned long duration = 0;
+            assert(driveio_takepulsereport(&reportedPin, &duration));
+            assert(reportedPin == pin && duration == 500);
+            assert(!driveio_takepulsereport(&reportedPin, &duration));
+        }
+    }
+}
+
 int main() {
     driveio_init();
     driveio_setdoorcommand(99);
@@ -142,6 +170,8 @@ int main() {
     test_pulse(DOORCOMMANDCLOSE, DOORCOMMANDOPEN, CMD_CLOSEDOOR_OUTPUT, CMD_OPENDOOR_OUTPUT);
     test_logging();
     test_stop_state();
+    test_pulse_timing();
+    puts("PASS: delayed pulse start, exact duration, timer wrap, one-shot duration reports");
     puts("PASS: start/stop/resume in all directions, end switches, unknown state, held buttons");
     puts("PASS: command interlock, duplicate pulses, invalid commands, bounded MQTT logging");
 }

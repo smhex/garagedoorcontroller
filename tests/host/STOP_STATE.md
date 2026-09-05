@@ -31,4 +31,16 @@ cannot be detected reliably. After boot between end positions or untracked motio
 the current state is `unknown`; the first direction command assumes the drive was
 stationary. Only test the inferred stop behavior after starting from a known end
 position. Homebridge's sample five-state mapping does not represent `unknown`.
-This PR does not change electrical polarity or fix sensor-induced pulse delays.
+Electrical polarity is unchanged. During an active pulse the main loop services
+GPIO timing and the watchdog only; sensor, HMI, MQTT and serial output wait for
+release. Timing starts when the Arduino output is actually set HIGH. This remains
+software timing, not a measurement of the XB10 voltage or a hard real-time guarantee.
+
+Diagnostics after upload:
+- `IO: pulse complete Arduino D0 HIGH duration=500 ms (software timing)` identifies
+  the opening output; D2 identifies the closing output.
+- `IO: t=... ms raw=... pulse=...` records input transitions. `pulse=1` samples
+  were taken during the command window and are ignored by the state tracker.
+  At most 16 transitions are buffered during a pulse; overflow is reported.
+- Repeat start/stop with at least one second between commands, and capture the
+  command, pulse report, input transitions and physical motion together.

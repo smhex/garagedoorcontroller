@@ -53,6 +53,34 @@ void show_page_hmi();
 void show_page_mqtt();
 void show_page_system();
 
+// Buffer input transitions during pulses; Serial output only runs after release.
+void trace_drive_inputs(bool pulseActiveAtSample)
+{
+  struct Sample { unsigned long time; int state; bool active; };
+  static Sample samples[16];
+  static unsigned int count = 0;
+  static unsigned int dropped = 0;
+  static int previous = -1;
+  const int input = driveio_getcurrentdoorstatus();
+  if (input != previous) {
+    previous = input;
+    if (count < 16) samples[count++] = {millis(), input, pulseActiveAtSample};
+    else ++dropped;
+  }
+  if (driveio_doorcommandactive()) return;
+  for (unsigned int i = 0; i < count; ++i) {
+    char line[100];
+    snprintf(line, sizeof(line), "IO: t=%lu ms raw=%d pulse=%d (0=external,1=open,2=closed,3=between)",
+             samples[i].time, samples[i].state, samples[i].active ? 1 : 0);
+    Serial.println(line);
+  }
+  if (dropped) {
+    Serial.print("IO: dropped transitions: ");
+    Serial.println(dropped);
+  }
+  count = dropped = 0;
+}
+
 // setup the board an all variables
 void setup()
 {
@@ -103,6 +131,20 @@ void loop()
   // driveio_loop samples inputs before releasing an expired command output.
   const bool pulseActiveAtSample = driveio_doorcommandactive();
   driveio_loop();
+  trace_drive_inputs(pulseActiveAtSample);
+  if (driveio_doorcommandactive()) {
+    if (!mqtt_isrestartrequested()) watchdog.clear();
+    return;
+  }
+  int completedPin;
+  unsigned long pulseDuration;
+  if (driveio_takepulsereport(&completedPin, &pulseDuration)) {
+    Serial.print("IO: pulse complete Arduino D");
+    Serial.print(completedPin);
+    Serial.print(" HIGH duration=");
+    Serial.print(pulseDuration);
+    Serial.println(" ms (software timing)");
+  }
   doorState.observe(driveio_getcurrentdoorstatus(), pulseActiveAtSample);
   show_door_state();
   hmi_loop();
@@ -183,6 +225,8 @@ void loop()
     }
   }
 
+  if (driveio_doorcommandactive()) return;
+
   if (displayIsOn)
   {
     show_systeminfo();
@@ -214,7 +258,6 @@ void command_door(int direction, String fromSource)
   Serial.println(" (source=" + fromSource + ")");
   mqtt_publish(MQTT_TOPICCONTROLCOMMANDSOURCE, fromSource, false);
   driveio_setdoorcommand(direction);
-  show_door_state();
 }
 
 void command_open(String fromSource)
