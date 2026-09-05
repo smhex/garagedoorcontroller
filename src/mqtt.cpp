@@ -34,12 +34,16 @@ void onTopicSystemRestartReceived(const String &payload, const size_t size);
 */
 void mqtt_init()
 {
+    if (mqttInitialized) return;
+
     // set mqtt client options
     mqttClient.setKeepAliveTimeout(60);
     mqttClient.setCleanSession(true);
 
     // Lastwill topic is equal to system status topic
-    String mqttLastWillTopic = MQTT_TOPICSYSTEMSTATUS;
+    // MQTTPubSubClient 0.1.2 stores the topic's buffer without copying it.
+    // Keep it alive for the later connection attempts and reconnects.
+    static String mqttLastWillTopic = MQTT_TOPICSYSTEMSTATUS;
     mqttClient.setWill(mqttLastWillTopic, mqttLastWillMsg, true, 0);
 
     mqttClient.setTimeout(1000);
@@ -56,11 +60,35 @@ void mqtt_connect()
     DNSClient resolver;
     IPAddress brokerIP;
     resolver.begin(Ethernet.dnsServerIP());
-    if (resolver.getHostByName(mqttBrokerAddress, brokerIP, 500) != 1 ||
-        !ethClient.connect(brokerIP, mqttBrokerPort) ||
-        !mqttClient.connect(mqttClientID, mqttUsername, mqttPassword))
+    Serial.print("MQTT: DNS server: ");
+    Serial.println(Ethernet.dnsServerIP());
+    int dnsResult = resolver.getHostByName(mqttBrokerAddress, brokerIP, 500);
+    if (dnsResult != 1)
     {
-        Serial.println("MQTT: Connection failed; retry in 10 seconds");
+        Serial.print("MQTT: DNS lookup failed, code: ");
+        Serial.println(dnsResult);
+        Serial.println("MQTT: Retry in 10 seconds");
+        ethClient.stop();
+        lastConnectAttempt_ms = millis();
+        return;
+    }
+    Serial.print("MQTT: Broker IP: ");
+    Serial.print(brokerIP);
+    Serial.print(":");
+    Serial.println(mqttBrokerPort);
+    if (!ethClient.connect(brokerIP, mqttBrokerPort))
+    {
+        Serial.println("MQTT: TCP connection failed; retry in 10 seconds");
+        ethClient.stop();
+        lastConnectAttempt_ms = millis();
+        return;
+    }
+    Serial.println("MQTT: TCP connected");
+    if (!mqttClient.connect(mqttClientID, mqttUsername, mqttPassword))
+    {
+        Serial.print("MQTT: Handshake failed, library error: ");
+        Serial.println(static_cast<int>(mqttClient.getLastError()));
+        Serial.println("MQTT: Retry in 10 seconds");
         ethClient.stop();
         lastConnectAttempt_ms = millis();
         return;
@@ -70,6 +98,9 @@ void mqtt_connect()
     bool restartSubscribed = mqttClient.subscribe(MQTT_TOPICSYSTEM_RESTART, &onTopicSystemRestartReceived);
     lastConnectAttempt_ms = millis();
     if (!controlSubscribed || !restartSubscribed) {
+        Serial.print("MQTT: Subscription failed, library error: ");
+        Serial.println(static_cast<int>(mqttClient.getLastError()));
+        Serial.println("MQTT: Retry in 10 seconds");
         ethClient.stop();
         return;
     }

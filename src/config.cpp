@@ -2,7 +2,7 @@
 
 // this information is shown on the OLED display and also sent to the MQTT broker
 String application = "GarageDoorController";
-String version = "0.1.7";
+String version = "0.1.8";
 String author = "smhex";
 
 // DHCP identifies this controller by MAC; keep it unique on the local network.
