@@ -6,6 +6,9 @@
 
 #include "config.h"
 #include "mqtt.h"
+#include "network.h"
+#include "driveio.h"
+#include <Dns.h>
 
 // MQTT broker/topic configuration
 // 256 bytes need to publish the sensors topic
@@ -18,18 +21,16 @@ int numPacketsSent = 0;
 
 bool mqttFirstRun = true;
 bool mqttInitialized = false;
+unsigned long lastConnectAttempt_ms = 0;
+bool connectAttempted = false;
 bool isRestartRequested = false;
 
 // handler for subscribed topics (mqtt receive)
 void onTopicControlSetNewDoorStateReceived(const String &payload, const size_t size);
 void onTopicSystemRestartReceived(const String &payload, const size_t size);
 
-// publishes the given topic with the given payload
-void mqtt_publish(String topic, String payload);
-
 /*
-* Creates the connection to the MQTT broker and performs the authentificaton. The 
-* topics will be initially published and the subscriptions will be created
+* Configures the client. Connection attempts are performed by mqtt_loop().
 */
 void mqtt_init()
 {
@@ -41,31 +42,48 @@ void mqtt_init()
     String mqttLastWillTopic = MQTT_TOPICSYSTEMSTATUS;
     mqttClient.setWill(mqttLastWillTopic, mqttLastWillMsg, true, 0);
 
-    // Connect to the broker
-    Serial.print("INIT: Connecting mqtt broker...");
-    while (!ethClient.connect(mqttBrokerAddress, mqttBrokerPort))
-    {
-        Serial.print(".");
-        delay(1000);
-    }
-    Serial.println(" success");
-
-    // Authenticate the client
+    mqttClient.setTimeout(1000);
+    ethClient.setConnectionTimeout(1000);
     mqttClient.begin(ethClient);
-    Serial.print("INIT: Logging into mqtt broker...");
-    while (!mqttClient.connect(mqttClientID, mqttUsername, mqttPassword))
-    {
-        Serial.print(".");
-        delay(1000);
-    }
-    Serial.println(" success");
-
     mqttInitialized = true;
+}
+
+// One bounded attempt; retries are scheduled by mqtt_loop().
+void mqtt_connect()
+{
+    connectAttempted = true;
+    ethClient.stop();
+    DNSClient resolver;
+    IPAddress brokerIP;
+    resolver.begin(Ethernet.dnsServerIP());
+    if (resolver.getHostByName(mqttBrokerAddress, brokerIP, 500) != 1 ||
+        !ethClient.connect(brokerIP, mqttBrokerPort) ||
+        !mqttClient.connect(mqttClientID, mqttUsername, mqttPassword))
+    {
+        Serial.println("MQTT: Connection failed; retry in 10 seconds");
+        ethClient.stop();
+        lastConnectAttempt_ms = millis();
+        return;
+    }
+
+    bool controlSubscribed = mqttClient.subscribe(MQTT_TOPICCONTROLSETNEWDOORSTATE, &onTopicControlSetNewDoorStateReceived);
+    bool restartSubscribed = mqttClient.subscribe(MQTT_TOPICSYSTEM_RESTART, &onTopicSystemRestartReceived);
+    lastConnectAttempt_ms = millis();
+    if (!controlSubscribed || !restartSubscribed) {
+        ethClient.stop();
+        return;
+    }
+    Serial.println("MQTT: Connected");
     mqttFirstRun = true;
 
-    // Subscribe command and restart topic
-    mqttClient.subscribe(MQTT_TOPICCONTROLSETNEWDOORSTATE, &onTopicControlSetNewDoorStateReceived);
-    mqttClient.subscribe(MQTT_TOPICSYSTEM_RESTART, &onTopicSystemRestartReceived);
+    // Republish the actual door state after initial connection or an outage.
+    int status = driveio_getcurrentdoorstatus();
+    if (status == DOORSTATUSOPEN || status == DOORSTATUSCLOSED) {
+        mqtt_publish(MQTT_TOPICCONTROLGETCURRENTDOORSTATE,
+                     status == DOORSTATUSOPEN ? MQTT_STATUSDOOROPEN : MQTT_STATUSDOORCLOSED, true);
+        mqtt_publish(MQTT_TOPICCONTROLGETNEWDOORSTATE,
+                     status == DOORSTATUSOPEN ? MQTT_COMMANDDOOROPEN : MQTT_COMMANDDOORCLOSE, true);
+    }
 }
 
 /*
@@ -118,6 +136,7 @@ void onTopicSystemRestartReceived(const String &payload, const size_t size)
  */
 void mqtt_publish(String topic, String payload, bool retain)
 {
+    if (!mqtt_isconnected() || !network_isready() || driveio_doorcommandactive()) return;
     Serial.println("RUN: Publish: set " + topic + " to " + payload);
     mqttClient.publish(topic, payload, retain, 0);
     numPacketsSent++;
@@ -138,11 +157,12 @@ String mqtt_getcommand()
  */
 void mqtt_loop()
 {
+    if (!mqttInitialized || !network_isready() || driveio_doorcommandactive()) return;
+
     // if connection to the broker is lost, try to reconnect
     if (!mqttClient.isConnected())
     {
-        Serial.println("RUN: Lost connection to mqtt broker. Trying to reconnect");
-        mqtt_init();
+        if (!connectAttempted || millis() - lastConnectAttempt_ms >= 10000) mqtt_connect();
     }
     else
     {

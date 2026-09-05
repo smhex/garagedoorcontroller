@@ -5,12 +5,8 @@ String application = "GarageDoorController";
 String version = "0.1.7";
 String author = "smhex";
 
-// Network configuration - sets MAC and IP address
+// DHCP identifies this controller by MAC; keep it unique on the local network.
 byte mac[] = {0xDE, 0xAD, 0xBE, 0xEF, 0xFE, 0xED};
-IPAddress ip(192, 168, 30, 241);
-IPAddress dns(192, 168, 30, 1);
-IPAddress subnet(255, 255, 255, 0);
-IPAddress gateway(192, 168, 30, 1);
 
 // MQTT configuration
 const char mqttBrokerAddress[] = "mosquitto.debes-online.com";

@@ -29,10 +29,6 @@ extern String author;
 
 // variables for network settings
 extern byte mac[];
-extern IPAddress ip;
-extern IPAddress dns;
-extern IPAddress subnet;
-extern IPAddress gateway;
 
 // variables for MQTT settings
 extern const char mqttBrokerAddress[];

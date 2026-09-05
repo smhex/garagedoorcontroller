@@ -13,6 +13,7 @@
 #include "util.h"
 #include "mqtt.h"
 #include "sensors.h"
+#include "network.h"
 
 EthernetClient ethClient;
 
@@ -88,49 +89,11 @@ void setup()
   // init baseboard
   driveio_init();
 
-  // check MKR ETH shield / connection
-  // interface uses a fully configured static ip
-  Ethernet.begin(mac, ip, dns, gateway, subnet);
-
-  // Check for Ethernet hardware present
-  if (Ethernet.hardwareStatus() == EthernetNoHardware)
-  {
-    Serial.println("ERROR: Ethernet shield was not found");
-    while (true)
-    {
-      delay(1);
-    }
-  }
-  else
-  {
-    Serial.print("INIT: Ethernet chipset type is ");
-    Serial.println(Ethernet.hardwareStatus());
-  }
-  if (Ethernet.linkStatus() == LinkOFF)
-  {
-    Serial.println("ERROR: Ethernet cable is not connected");
-  }
-  Serial.print("INIT: Controller network interface is at ");
-  Serial.println(Ethernet.localIP());
-
-  // Initialize MQTT client
+  watchdog_reset();
+  network_init();
+  watchdog_reset();
   mqtt_init();
 
-  // publish the current door status - this is necessary because the
-  // status is normally updated only if it has changed - if Homebridge
-  // is restarted in between this helps to set the initial state in Homekit
-  // Note: mqtt_init() must be called before - otherwise the mqtt connection
-  // is not working
-  if (driveio_getcurrentdoorstatus()==DOORSTATUSOPEN)
-  {
-    mqtt_publish(MQTT_TOPICCONTROLGETCURRENTDOORSTATE, MQTT_STATUSDOOROPEN, true);
-    mqtt_publish(MQTT_TOPICCONTROLGETNEWDOORSTATE, MQTT_COMMANDDOOROPEN, true);
-  }
-  if (driveio_getcurrentdoorstatus()==DOORSTATUSCLOSED)
-  {
-    mqtt_publish(MQTT_TOPICCONTROLGETCURRENTDOORSTATE, MQTT_STATUSDOORCLOSED, true);
-    mqtt_publish(MQTT_TOPICCONTROLGETNEWDOORSTATE, MQTT_COMMANDDOORCLOSE, true);
-  }
 }
 
 // main loop - reads/writes commands and sensor values
@@ -143,7 +106,13 @@ void loop()
   driveio_loop();
   hmi_loop();
   sensors_loop();
-  mqtt_loop();
+  if (!driveio_doorcommandactive() && !mqtt_isrestartrequested())
+  {
+    watchdog_reset();
+    network_loop();
+    watchdog_reset();
+    mqtt_loop();
+  }
 
   // gets the current sensor values and sends them via mqtt
   publish_sensor_values();
