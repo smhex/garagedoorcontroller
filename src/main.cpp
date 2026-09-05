@@ -294,6 +294,10 @@ void loop()
  */
 void command_door(int direction, String fromSource)
 {
+  if (mqtt_isrestartrequested()) {
+    Serial.println("RUN: Command ignored: restart armed");
+    return;
+  }
   if (driveio_doorcommandactive()) {
     Serial.println("RUN: Command ignored: drive pulse active");
     return;

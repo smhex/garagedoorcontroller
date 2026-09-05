@@ -30,9 +30,9 @@
 /* exports */
 void mqtt_init();
 void mqtt_loop();
-void mqtt_publish(String topic, String payload, bool retain);
+bool mqtt_publish(String topic, String payload, bool retain);
 String mqtt_getcommand();
-int mqtt_getpacketsreceived();
-int mqtt_getpacketssent();
+uint32_t mqtt_getpacketsreceived();
+uint32_t mqtt_getpacketssent();
 bool mqtt_isconnected();
 bool mqtt_isrestartrequested();

@@ -10,6 +10,38 @@
 #include "door_state.h"
 #include "button_edge.h"
 #include "input_capture.h"
+#include "mqtt_delivery.h"
+
+static void test_mqtt_delivery() {
+    MqttRestart restart;
+    int calls = 0;
+    bool accepted = false;
+    auto send = [&](const char* topic, const char* payload, bool retained, int qos) {
+        ++calls;
+        assert(strcmp(topic, "gdc/system/restart") == 0);
+        assert(payload[0] == '\0' && retained && qos == 1);
+        return accepted;
+    };
+    assert(!restart.service(0, true, send) && calls == 0);
+    restart.request();
+    assert(!restart.service(0, false, send) && calls == 0);
+    const uint32_t start = UINT32_MAX - 1000;
+    assert(!restart.service(start, true, send));
+    assert(calls == 1 && !restart.requested());
+    restart.request(); // Duplicate delivery must not reset retry timing.
+    assert(!restart.service(uint32_t(start + 9999), true, send) && calls == 1);
+    accepted = true;
+    assert(!restart.service(uint32_t(start + 10000), false, send) && calls == 1);
+    assert(restart.service(uint32_t(start + 10000), true, send));
+    assert(restart.requested() && calls == 2);
+    restart.request();
+    assert(!restart.service(50000, true, send) && calls == 2);
+    uint32_t count = 0;
+    assert(!mqtt_counted_send(count, []() { return false; }) && count == 0);
+    assert(mqtt_counted_send(count, []() { return true; }) && count == 1);
+    count = UINT32_MAX;
+    assert(mqtt_counted_send(count, []() { return true; }) && count == 0);
+}
 
 static void test_input_capture() {
     InputCapture<3> capture;
@@ -191,6 +223,8 @@ int main() {
     test_repeated_commands_preserve_motion();
     test_pulse_timing();
     test_input_capture();
+    test_mqtt_delivery();
+    puts("PASS: retained restart deletion, ACK gating, failure retry/wrap, duplicate requests and send counts");
     puts("PASS: input capture, unchanged levels, overflow, timer wrap and reset");
     puts("PASS: delayed pulse start, exact duration, timer wrap, one-shot duration reports");
     puts("PASS: no inferred stop/reversal from repeated commands, end switches, unknown state, held buttons");
