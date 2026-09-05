@@ -6,6 +6,62 @@
 #include "config.h"
 #include "driveio.h"
 #include "mqtt_log.h"
+#include "door_state.h"
+#include "button_edge.h"
+
+static void test_stop_state() {
+    for (int startDirection : {DOORCOMMANDOPEN, DOORCOMMANDCLOSE}) {
+        for (int stopDirection : {DOORCOMMANDOPEN, DOORCOMMANDCLOSE}) {
+            for (int resumeDirection : {DOORCOMMANDOPEN, DOORCOMMANDCLOSE}) {
+                DoorStateTracker tracker;
+                int startInput = startDirection == DOORCOMMANDOPEN ? DOORSTATUSCLOSED : DOORSTATUSOPEN;
+                tracker.observe(startInput);
+                assert(tracker.command(startDirection));
+                const DoorState moving = startDirection == DOORCOMMANDOPEN ? DoorState::Opening : DoorState::Closing;
+                assert(tracker.state == moving);
+                // The starting end switch remains active briefly after the command.
+                tracker.observe(startInput);
+                assert(tracker.state == moving);
+                tracker.observe(DOORSTATUSMOVINGORSTOPPED);
+                assert(tracker.state == moving);
+                assert(tracker.command(stopDirection));
+                assert(tracker.state == DoorState::Stopped);
+                assert(tracker.target == startDirection);
+                tracker.observe(DOORSTATUSMOVINGORSTOPPED);
+                assert(tracker.state == DoorState::Stopped);
+                assert(tracker.command(resumeDirection));
+                assert(tracker.state == (resumeDirection == DOORCOMMANDOPEN ? DoorState::Opening : DoorState::Closing));
+                assert(tracker.target == resumeDirection);
+                tracker.observe(resumeDirection == DOORCOMMANDOPEN ? DOORSTATUSOPEN : DOORSTATUSCLOSED);
+                assert(tracker.state == (resumeDirection == DOORCOMMANDOPEN ? DoorState::Open : DoorState::Closed));
+                assert(!tracker.command(resumeDirection));
+            }
+        }
+    }
+    DoorStateTracker tracker;
+    tracker.observe(DOORSTATUSMOVINGORSTOPPED);
+    assert(tracker.state == DoorState::Unknown);
+    assert(!tracker.command(99));
+    tracker.observe(DOORSTATUSCLOSED);
+    tracker.observe(DOORSTATUSMOVINGORSTOPPED);
+    assert(tracker.state == DoorState::Unknown); // External motion is not guessed.
+    tracker.observe(DOORSTATUSOPEN);
+    assert(tracker.state == DoorState::Open);
+
+    // An end switch reached during an active pulse is retained in the model.
+    tracker.command(DOORCOMMANDCLOSE);
+    tracker.observe(DOORSTATUSMOVINGORSTOPPED);
+    tracker.observe(DOORSTATUSCLOSED);
+    tracker.observe(DOORSTATUSCLOSED);
+    assert(tracker.state == DoorState::Closed);
+
+    ButtonEdge button;
+    assert(!button.update(false));
+    assert(button.update(true));
+    for (int i = 0; i < 100; ++i) assert(!button.update(true));
+    assert(!button.update(false));
+    assert(button.update(true));
+}
 
 static unsigned long now_ms = 1000;
 static int pins[4] = {};
@@ -78,5 +134,7 @@ int main() {
     test_pulse(DOORCOMMANDOPEN, DOORCOMMANDCLOSE, CMD_OPENDOOR_OUTPUT, CMD_CLOSEDOOR_OUTPUT);
     test_pulse(DOORCOMMANDCLOSE, DOORCOMMANDOPEN, CMD_CLOSEDOOR_OUTPUT, CMD_OPENDOOR_OUTPUT);
     test_logging();
+    test_stop_state();
+    puts("PASS: start/stop/resume in all directions, end switches, unknown state, held buttons");
     puts("PASS: command interlock, duplicate pulses, invalid commands, bounded MQTT logging");
 }

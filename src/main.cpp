@@ -9,6 +9,7 @@
 // Include local libraries/headers
 #include "config.h"
 #include "driveio.h"
+#include "door_state.h"
 #include "hmi.h"
 #include "util.h"
 #include "mqtt.h"
@@ -28,8 +29,6 @@ unsigned long millisWhenStarted_ms;
 int ledState = LOW;
 
 // maintain door status
-int oldDoorStatus = 0;
-int newDoorStatus = 0;
 int lastCommand = 0;
 
 // initial page to display on the display after system start
@@ -45,9 +44,7 @@ void watchdog_onShutdown();
 void publish_sensor_values();
 void command_open(String fromSource);
 void command_close(String fromSource);
-void status_isopen();
-void status_isclosed();
-void status_ismovingorstopped();
+void show_door_state();
 void show_systeminfo();
 void show_page_sensors();
 void show_page_overview();
@@ -104,6 +101,8 @@ void loop()
 
   // loop over all modules
   driveio_loop();
+  doorState.observe(driveio_getcurrentdoorstatus());
+  show_door_state();
   hmi_loop();
   sensors_loop();
   if (!driveio_doorcommandactive() && !mqtt_isrestartrequested())
@@ -124,26 +123,10 @@ void loop()
     watchdog_reset();
   }
 
-  // check if door status was changed
-  if (driveio_doorstatuschanged(&oldDoorStatus, &newDoorStatus))
-  {
-    if ((newDoorStatus == DOORSTATUSOPEN) && (driveio_doorcommandactive()==false))
-    {
-      status_isopen();
-    }
-    if ((newDoorStatus == DOORSTATUSCLOSED) && (driveio_doorcommandactive()==false))
-    {
-      status_isclosed();
-    }
-    if (newDoorStatus == DOORSTATUSMOVINGORSTOPPED)
-    {
-      status_ismovingorstopped();
-    }
-    if (newDoorStatus == DOORSTATUSEXTERNAL)
-    {
-      mqtt_publish(MQTT_TOPICCONTROLCOMMANDSOURCE, MQTT_COMMANDSOURCEEXTERNAL, false);
-    }
-  }
+  int oldInput = 0;
+  int newInput = 0;
+  if (driveio_doorstatuschanged(&oldInput, &newInput) && newInput == DOORSTATUSEXTERNAL)
+    mqtt_publish(MQTT_TOPICCONTROLCOMMANDSOURCE, MQTT_COMMANDSOURCEEXTERNAL, false);
 
   // check for user command (button press on HMI)
   int buttonPressed = hmi_getbuttonpressed();
@@ -211,91 +194,51 @@ void loop()
 }
 
 /*
- * set door to open
+ * Issue a direction pulse; during known motion either direction means stop.
  */
+void command_door(int direction, String fromSource)
+{
+  if (driveio_doorcommandactive()) {
+    Serial.println("RUN: Command ignored: drive pulse active");
+    return;
+  }
+  if (!doorState.command(direction)) {
+    Serial.println("RUN: Command ignored: target end position already reached");
+    return;
+  }
+  Serial.print("RUN: Command: ");
+  Serial.print(doorState.state == DoorState::Stopped ? "STOP" :
+               direction == DOORCOMMANDOPEN ? "DOOROPEN" : "DOORCLOSE");
+  Serial.println(" (source=" + fromSource + ")");
+  mqtt_publish(MQTT_TOPICCONTROLCOMMANDSOURCE, fromSource, false);
+  driveio_setdoorcommand(direction);
+  show_door_state();
+}
+
 void command_open(String fromSource)
 {
-  if (driveio_doorcommandactive()) {
-    Serial.println("RUN: Command ignored: drive pulse active");
-    return;
-  }
-  char buffer[80];
-  sprintf(buffer, "RUN: Command: DOOROPEN (source=%s)", fromSource.c_str());
-  Serial.println(buffer);
-
-  mqtt_publish(MQTT_TOPICCONTROLGETNEWDOORSTATE, MQTT_COMMANDDOOROPEN, true);
-  mqtt_publish(MQTT_TOPICCONTROLGETCURRENTDOORSTATE, MQTT_STATUSDOOROPENING, true);
-  mqtt_publish(MQTT_TOPICCONTROLCOMMANDSOURCE, fromSource, false);
-
-  driveio_setdoorcommand(DOORCOMMANDOPEN);
-
-  hmi_setled_blinking(HMI_LED_DOORCLOSED, false);
-  hmi_setled_blinking(HMI_LED_DOOROPEN, true);
-  hmi_setled(HMI_LED_DOORCLOSED, LOW);
+  command_door(DOORCOMMANDOPEN, fromSource);
 }
 
-/*
- * set door to close
- */
 void command_close(String fromSource)
 {
-  if (driveio_doorcommandactive()) {
-    Serial.println("RUN: Command ignored: drive pulse active");
-    return;
-  }
-  char buffer[80];
-  sprintf(buffer, "RUN: Command: DOORCLOSE (source=%s)", fromSource.c_str());
-  Serial.println(buffer);
-
-  mqtt_publish(MQTT_TOPICCONTROLGETNEWDOORSTATE, MQTT_COMMANDDOORCLOSE, true);
-  mqtt_publish(MQTT_TOPICCONTROLGETCURRENTDOORSTATE, MQTT_STATUSDOORCLOSING, true);
-  mqtt_publish(MQTT_TOPICCONTROLCOMMANDSOURCE, fromSource, false);
-
-  driveio_setdoorcommand(DOORCOMMANDCLOSE);
-
-  hmi_setled(HMI_LED_DOOROPEN, LOW);
-  hmi_setled_blinking(HMI_LED_DOOROPEN, false);
-  hmi_setled_blinking(HMI_LED_DOORCLOSED, true);
+  command_door(DOORCOMMANDCLOSE, fromSource);
 }
 
-/*
- *  door is open
- */
-void status_isopen()
+// LEDs follow the same logical state as MQTT. Unknown/stopped: both off.
+void show_door_state()
 {
-  Serial.println("RUN: STATUS: DOOROPEN");
-
-  mqtt_publish(MQTT_TOPICCONTROLGETCURRENTDOORSTATE, MQTT_STATUSDOOROPEN, true);
-  mqtt_publish(MQTT_TOPICCONTROLGETNEWDOORSTATE, MQTT_COMMANDDOOROPEN, true);
-
-  hmi_setled_blinking(HMI_LED_DOOROPEN, false);
-  hmi_setled_blinking(HMI_LED_DOORCLOSED, false);
-  hmi_setled(HMI_LED_DOOROPEN, HIGH);
-  hmi_setled(HMI_LED_DOORCLOSED, LOW);
-}
-
-/*
- *  door is closed
- */
-void status_isclosed()
-{
-  Serial.println("RUN: STATUS: DOORCLOSED");
-
-  mqtt_publish(MQTT_TOPICCONTROLGETCURRENTDOORSTATE, MQTT_STATUSDOORCLOSED, true);
-  mqtt_publish(MQTT_TOPICCONTROLGETNEWDOORSTATE, MQTT_COMMANDDOORCLOSE, true);
-
-  hmi_setled_blinking(HMI_LED_DOOROPEN, false);
-  hmi_setled_blinking(HMI_LED_DOORCLOSED, false);
-  hmi_setled(HMI_LED_DOOROPEN, LOW);
-  hmi_setled(HMI_LED_DOORCLOSED, HIGH);
-}
-
-/*
- *  door is closed
- */
-void status_ismovingorstopped()
-{
-  Serial.println("RUN: STATUS: DOORMOVINGORSTOPPED");
+  static DoorState displayed = DoorState::Unknown;
+  static bool initialized = false;
+  if (initialized && displayed == doorState.state) return;
+  displayed = doorState.state;
+  initialized = true;
+  hmi_setled_blinking(HMI_LED_DOOROPEN, displayed == DoorState::Opening);
+  hmi_setled_blinking(HMI_LED_DOORCLOSED, displayed == DoorState::Closing);
+  if (displayed != DoorState::Opening)
+    hmi_setled(HMI_LED_DOOROPEN, displayed == DoorState::Open ? HIGH : LOW);
+  if (displayed != DoorState::Closing)
+    hmi_setled(HMI_LED_DOORCLOSED, displayed == DoorState::Closed ? HIGH : LOW);
 }
 
 /*

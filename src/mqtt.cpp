@@ -9,6 +9,7 @@
 #include "mqtt_log.h"
 #include "network.h"
 #include "driveio.h"
+#include "door_state.h"
 #include <Dns.h>
 
 // MQTT broker/topic configuration
@@ -25,6 +26,39 @@ bool mqttInitialized = false;
 unsigned long lastConnectAttempt_ms = 0;
 bool connectAttempted = false;
 bool isRestartRequested = false;
+bool doorStatePublished = false;
+DoorState publishedDoorState = DoorState::Unknown;
+int publishedDoorTarget = 0;
+
+// Retain the latest logical state across suppressed sends and network outages.
+void mqtt_publish_door_state()
+{
+    if (!mqttClient.isConnected() || driveio_doorcommandactive()) return;
+    if (doorStatePublished && publishedDoorState == doorState.state &&
+        publishedDoorTarget == doorState.target) return;
+    const char* state = MQTT_STATUSDOORUNKNOWN;
+    switch (doorState.state) {
+        case DoorState::Open: state = MQTT_STATUSDOOROPEN; break;
+        case DoorState::Closed: state = MQTT_STATUSDOORCLOSED; break;
+        case DoorState::Opening: state = MQTT_STATUSDOOROPENING; break;
+        case DoorState::Closing: state = MQTT_STATUSDOORCLOSING; break;
+        case DoorState::Stopped: state = MQTT_STATUSDOORSTOPPED; break;
+        case DoorState::Unknown: break;
+    }
+    if (!mqttClient.publish(MQTT_TOPICCONTROLGETCURRENTDOORSTATE, state, true, 0)) return;
+    numPacketsSent++;
+    if (doorState.target != 0) {
+        if (!mqttClient.publish(MQTT_TOPICCONTROLGETNEWDOORSTATE,
+            doorState.target == DOORCOMMANDOPEN ? MQTT_COMMANDDOOROPEN : MQTT_COMMANDDOORCLOSE,
+            true, 0)) return;
+        numPacketsSent++;
+    }
+    Serial.print("RUN: Door state published: ");
+    Serial.println(state);
+    publishedDoorState = doorState.state;
+    publishedDoorTarget = doorState.target;
+    doorStatePublished = true;
+}
 
 // handler for subscribed topics (mqtt receive)
 void onTopicControlSetNewDoorStateReceived(const String &payload, const size_t size);
@@ -108,14 +142,8 @@ void mqtt_connect()
     Serial.println("MQTT: Connected");
     mqttFirstRun = true;
 
-    // Republish the actual door state after initial connection or an outage.
-    int status = driveio_getcurrentdoorstatus();
-    if (status == DOORSTATUSOPEN || status == DOORSTATUSCLOSED) {
-        mqtt_publish(MQTT_TOPICCONTROLGETCURRENTDOORSTATE,
-                     status == DOORSTATUSOPEN ? MQTT_STATUSDOOROPEN : MQTT_STATUSDOORCLOSED, true);
-        mqtt_publish(MQTT_TOPICCONTROLGETNEWDOORSTATE,
-                     status == DOORSTATUSOPEN ? MQTT_COMMANDDOOROPEN : MQTT_COMMANDDOORCLOSE, true);
-    }
+    doorStatePublished = false;
+    mqtt_publish_door_state();
 }
 
 /*
@@ -199,6 +227,7 @@ void mqtt_loop()
     else
     {
         mqttClient.update();
+        mqtt_publish_door_state();
         if (mqttFirstRun)
         {
             // global buffer for dealing with json packets
