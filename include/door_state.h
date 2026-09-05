@@ -1,10 +1,11 @@
 #pragma once
 #include "driveio.h"
 
-enum class DoorState { Unknown, Open, Closed, Opening, Closing, Stopped };
+enum class DoorState { Unknown, Open, Closed, Opening, Closing };
 
 // End switches cannot distinguish intermediate motion from a stopped door.
-// Motion and stops are inferred only from commands sent by this controller.
+// Motion is an assumption after a command, not a measured movement signal.
+// Repeated direction pulses have not stopped the tested drive: never infer stop.
 class DoorStateTracker {
 public:
     DoorState state = DoorState::Unknown;
@@ -31,8 +32,8 @@ public:
     bool command(int direction) {
         if (direction != DOORCOMMANDOPEN && direction != DOORCOMMANDCLOSE) return false;
         if (state == DoorState::Opening || state == DoorState::Closing) {
-            state = DoorState::Stopped;
-            // HomeKit has no stopped target: preserve the previous target.
+            // Keep the prior motion assumption and target until an end switch.
+            // Still permit the requested pulse without claiming stop or reversal.
         } else {
             if ((state == DoorState::Open && direction == DOORCOMMANDOPEN) ||
                 (state == DoorState::Closed && direction == DOORCOMMANDCLOSE)) return false;

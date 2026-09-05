@@ -42,7 +42,6 @@ void mqtt_publish_door_state()
         case DoorState::Closed: state = MQTT_STATUSDOORCLOSED; break;
         case DoorState::Opening: state = MQTT_STATUSDOOROPENING; break;
         case DoorState::Closing: state = MQTT_STATUSDOORCLOSING; break;
-        case DoorState::Stopped: state = MQTT_STATUSDOORSTOPPED; break;
         case DoorState::Unknown: break;
     }
     if (!mqttClient.publish(MQTT_TOPICCONTROLGETCURRENTDOORSTATE, state, true, 0)) return;

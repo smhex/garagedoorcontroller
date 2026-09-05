@@ -1,4 +1,4 @@
-# Stop state hardware checks
+# Drive timing, end position and input diagnostics
 
 ## Original remote input capture
 
@@ -18,10 +18,10 @@ are reset because activity through the remote was not tracked. End the test at
 a known end position before testing normal Arduino commands again. Send `d` again
 for another capture if necessary. Copy the complete START-to-resume log.
 
-This PR follows command-safety (#29). A new command during known motion pulses
-the requested output and sets current state to `stopped`, regardless of direction.
-The next command selects the new direction. The target stays at the previous
-direction on stop; HomeKit has no stopped target. Both LEDs stop blinking on stop.
+This PR follows command-safety (#29). Repeated direction pulses did not stop the
+tested drive. Commands during inferred motion therefore preserve the previous
+motion assumption and target; they do not imply stop or reversal. The requested
+output is still pulsed. There is no automatic `stopped` state in this firmware.
 Current/target state is published after the pulse and restored on MQTT reconnect.
 Input samples taken during the controller's own command pulse are ignored by the
 state tracker, including the sample read just before the output is released.
@@ -31,24 +31,23 @@ it does not filter pulse gaps outside the command window.
 
 Check with local buttons and MQTT, waiting for each 500 ms pulse to finish:
 
-1. From closed, open: expect `opening`. Send open again: expect physical stop and
-   `stopped`. Send close: expect `closing`, then `closed` at the end switch.
-2. From closed, open then close during motion: expect stop, not reversal. A further
-   close starts closing. Repeat from open while closing, using both stop directions.
+1. From closed, open: expect `opening`, followed by `open` at the end switch.
+2. Repeat a same/opposite direction command during inferred motion: no `STOP` log,
+   no `stopped` publication and no assumed reversal. Verify pulse diagnostics.
+   Repeat from open while closing. Actual motion must be observed separately.
 3. Hold a local door button for more than two seconds: only one command should be
    generated. Release it before issuing the next command.
-4. While stopped between end switches, disconnect and reconnect Ethernet. Expect
-   `stopped` to be republished. Check Homebridge shows stopped.
+4. Reconnect Ethernet at an end position: the current end position is republished.
 5. Issue open when already open (and close when closed): no pulse or false motion.
-6. Verify both end positions still override inferred motion/stop and both LEDs
+6. Verify both end positions still override inferred motion and both LEDs
    indicate the correct end position.
 
 Limits: the two status inputs do not distinguish motion from a stop between end
 positions. Stops initiated through another remote, obstruction, or drive failure
 cannot be detected reliably. After boot between end positions or untracked motion,
 the current state is `unknown`; the first direction command assumes the drive was
-stationary. Only test the inferred stop behavior after starting from a known end
-position. Homebridge's sample five-state mapping does not represent `unknown`.
+stationary. External stops can leave an inferred moving state stale until an end
+position is reached. Homebridge's sample five-state mapping does not represent `unknown`.
 Electrical polarity is unchanged. During an active pulse the main loop services
 GPIO timing and the watchdog only; sensor, HMI, MQTT and serial output wait for
 release. Timing starts when the Arduino output is actually set HIGH. This remains
@@ -60,5 +59,10 @@ Diagnostics after upload:
 - `IO: t=... ms raw=... pulse=...` records input transitions. `pulse=1` samples
   were taken during the command window and are ignored by the state tracker.
   At most 16 transitions are buffered during a pulse; overflow is reported.
-- Repeat start/stop with at least one second between commands, and capture the
+- Leave at least one second between commands, and capture the
   command, pulse report, input transitions and physical motion together.
+
+Observed with the original remote: closed D1/D3=0/1, travel=1/1, open=1/0.
+A 439 us 0/0 transient was captured at the open end position; a single 0/0 sample
+is not reliable proof of external actuation. No temporal input filter is added
+here; filtering and actual Arduino stop functionality remain unresolved.

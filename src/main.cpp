@@ -290,7 +290,7 @@ void loop()
 }
 
 /*
- * Issue a direction pulse; during known motion either direction means stop.
+ * Issue a direction pulse without assuming that a repeated command stops motion.
  */
 void command_door(int direction, String fromSource)
 {
@@ -303,8 +303,7 @@ void command_door(int direction, String fromSource)
     return;
   }
   Serial.print("RUN: Command: ");
-  Serial.print(doorState.state == DoorState::Stopped ? "STOP" :
-               direction == DOORCOMMANDOPEN ? "DOOROPEN" : "DOORCLOSE");
+  Serial.print(direction == DOORCOMMANDOPEN ? "DOOROPEN" : "DOORCLOSE");
   Serial.println(" (source=" + fromSource + ")");
   mqtt_publish(MQTT_TOPICCONTROLCOMMANDSOURCE, fromSource, false);
   driveio_setdoorcommand(direction);
@@ -320,7 +319,7 @@ void command_close(String fromSource)
   command_door(DOORCOMMANDCLOSE, fromSource);
 }
 
-// LEDs follow the same logical state as MQTT. Unknown/stopped: both off.
+// LEDs follow the same logical state as MQTT. Unknown: both off.
 void show_door_state()
 {
   static DoorState displayed = DoorState::Unknown;
