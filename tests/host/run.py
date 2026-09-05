@@ -21,3 +21,12 @@ with tempfile.TemporaryDirectory(prefix="gdc-tests-") as build:
         "-o", str(executable),
     ], check=True)
     subprocess.run([str(executable)], check=True)
+    sensor_executable = Path(build) / "sensor_resilience.exe"
+    subprocess.run([
+        args.cxx, "-std=c++11", "-Wall", "-Wextra", "-Werror",
+        "-I" + str(root / "tests/host/sensor_stubs"),
+        "-I" + str(root / "lib/Arduino_MKRENV/src"), "-I" + str(root / "include"),
+        str(root / "tests/host/sensor_resilience.cpp"), str(root / "src/sensors.cpp"),
+        str(root / "lib/Arduino_MKRENV/src/MKRENV.cpp"), "-o", str(sensor_executable),
+    ], check=True)
+    subprocess.run([str(sensor_executable)], check=True)
