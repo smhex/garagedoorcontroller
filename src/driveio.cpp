@@ -117,6 +117,9 @@ void driveio_readiosignals(){
 */
 void driveio_setdoorcommand(int Command)
 {
+    // The first command owns both outputs until its pulse has completed.
+    if (driveio_doorcommandactive()) return;
+
     if ((Command == DOORCOMMANDOPEN) && (!commandOpenDoorActive))
     {
         commandOpenDoorActive = true;

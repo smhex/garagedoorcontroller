@@ -4,6 +4,13 @@ on:
   push:
     branches:
       - master
+      - dev
+      - 'release/**'
+  pull_request:
+    branches:
+      - master
+      - dev
+      - 'release/**'
 
 jobs:
   build:
@@ -13,14 +20,14 @@ jobs:
     steps:
     - uses: actions/checkout@v2
     - name: Cache pip
-      uses: actions/cache@v2
+      uses: actions/cache@v4
       with:
         path: ~/.cache/pip
         key: ${{ runner.os }}-pip-${{ hashFiles('**/requirements.txt') }}
         restore-keys: |
           ${{ runner.os }}-pip-
     - name: Cache PlatformIO
-      uses: actions/cache@v2
+      uses: actions/cache@v4
       with:
         path: ~/.platformio
         key: ${{ runner.os }}-${{ hashFiles('**/lockfiles') }}
@@ -32,3 +39,5 @@ jobs:
         pip install --upgrade platformio
     - name: Run PlatformIO
       run: pio run -e mkrzero-release
+    - name: Run host regression tests
+      run: python tests/host/run.py
