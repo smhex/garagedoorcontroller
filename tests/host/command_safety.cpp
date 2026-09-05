@@ -9,6 +9,25 @@
 #include "mqtt_log.h"
 #include "door_state.h"
 #include "button_edge.h"
+#include "input_capture.h"
+
+static void test_input_capture() {
+    InputCapture<3> capture;
+    capture.reset(UINT32_MAX - 10);
+    capture.record(UINT32_MAX - 10, 1);
+    capture.record(UINT32_MAX - 5, 1);
+    capture.record(4, 0);
+    capture.record(9, 3);
+    capture.record(14, 2);
+    capture.record(19, 2);
+    assert(capture.count == 3 && capture.dropped == 1 && capture.reads == 6);
+    assert(capture.samples[0].us == 0 && capture.samples[0].levels == 1);
+    assert(capture.samples[1].us == 15 && capture.samples[1].levels == 0);
+    assert(capture.samples[2].levels == 3 && capture.maxGapUs == 10);
+    capture.reset(100);
+    capture.record(100, 2);
+    assert(capture.count == 1 && capture.dropped == 0 && capture.reads == 1);
+}
 
 static void test_stop_state() {
     for (int startDirection : {DOORCOMMANDOPEN, DOORCOMMANDCLOSE}) {
@@ -171,6 +190,8 @@ int main() {
     test_logging();
     test_stop_state();
     test_pulse_timing();
+    test_input_capture();
+    puts("PASS: input capture, unchanged levels, overflow, timer wrap and reset");
     puts("PASS: delayed pulse start, exact duration, timer wrap, one-shot duration reports");
     puts("PASS: start/stop/resume in all directions, end switches, unknown state, held buttons");
     puts("PASS: command interlock, duplicate pulses, invalid commands, bounded MQTT logging");

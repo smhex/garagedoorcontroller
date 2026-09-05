@@ -15,6 +15,7 @@
 #include "mqtt.h"
 #include "sensors.h"
 #include "network.h"
+#include "input_capture.h"
 
 EthernetClient ethClient;
 
@@ -52,6 +53,54 @@ void show_page_driveio();
 void show_page_hmi();
 void show_page_mqtt();
 void show_page_system();
+
+// Type d in the USB serial monitor to capture input levels for 30 seconds.
+bool input_diagnostic_loop()
+{
+  static InputCapture<256> capture;
+  static bool active = false;
+  static unsigned long startedMs = 0;
+  static unsigned long watchdogMs = 0;
+  if (!active) {
+    if (driveio_doorcommandactive() || mqtt_isrestartrequested()) return false;
+    if (!Serial.available() || Serial.read() != 'd') return false;
+    // Prevent commands arriving on the old MQTT session during the pause.
+    ethClient.stop();
+    Serial.println("DIAG: START 30 seconds; use original remote only. Inputs D1/D3; Arduino commands paused.");
+    Serial.flush();
+    startedMs = watchdogMs = millis();
+    watchdog.clear();
+    capture.reset(micros());
+    active = true;
+  }
+  const uint8_t levels = (digitalRead(STATUS_DOORISOPEN_INPUT) ? 1 : 0) |
+                         (digitalRead(STATUS_DOORISCLOSED_INPUT) ? 2 : 0);
+  capture.record(micros(), levels);
+  if (millis() - watchdogMs >= 100) {
+    watchdog.clear();
+    watchdogMs = millis();
+  }
+  if (millis() - startedMs < 30000) return true;
+
+  Serial.println("DIAG: END; buffered transitions follow (time from capture start)");
+  for (size_t i = 0; i < capture.count; ++i) {
+    char line[80];
+    snprintf(line, sizeof(line), "DIAG: t=%lu us D1=%u D3=%u",
+             static_cast<unsigned long>(capture.samples[i].us),
+             static_cast<unsigned>(capture.samples[i].levels & 1),
+             static_cast<unsigned>((capture.samples[i].levels >> 1) & 1));
+    Serial.println(line);
+    watchdog.clear();
+  }
+  Serial.print("DIAG: reads="); Serial.print(capture.reads);
+  Serial.print(" max_gap_us="); Serial.print(capture.maxGapUs);
+  Serial.print(" dropped_transitions="); Serial.println(capture.dropped);
+  // External activity invalidates motion inferred before the capture.
+  doorState = DoorStateTracker();
+  active = false;
+  Serial.println("DIAG: normal operation resumes; MQTT reconnects");
+  return true;
+}
 
 // Buffer input transitions during pulses; Serial output only runs after release.
 void trace_drive_inputs(bool pulseActiveAtSample)
@@ -126,6 +175,7 @@ void loop()
 {
   // calculate uptime in seconds
   uptime_in_secs = (millis() - millisWhenStarted_ms) / 1000;
+  if (input_diagnostic_loop()) return;
 
   // loop over all modules
   // driveio_loop samples inputs before releasing an expired command output.
