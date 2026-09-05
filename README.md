@@ -174,12 +174,14 @@ Install the PlatformIO IDE extension in VS Code and Git for Windows if Git is no
 already installed. Clone the DHCP branch and open the folder in VS Code:
 
 ```sh
-git clone --branch dhcp-dev https://github.com/smhex/garagedoorcontroller.git
+git clone --branch dev https://github.com/smhex/garagedoorcontroller.git
 cd garagedoorcontroller
 code .
 ```
 
-In an existing clone, use `git fetch origin` followed by `git switch dhcp-dev`.
+In an existing clone, use `git fetch origin` followed by `git switch dev`.
+The release preparation branch is `release/0.1.9`; see [CHANGELOG.md](CHANGELOG.md)
+for tested functionality and known limitations.
 PlatformIO downloads the board toolchain and libraries on first build. The MQTT
 library is pinned to its upstream 0.1.2 commit because the old registry requirement
 is no longer available. Use Project Tasks → mkrzero-release → Build, then connect
