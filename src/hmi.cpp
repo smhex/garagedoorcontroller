@@ -5,6 +5,7 @@
 
 #include "config.h"
 #include "hmi.h"
+#include "button_edge.h"
 
 // internal defines
 #define BUTTONSTATUS_PRESSED 0 // inputs use internal pullup's
@@ -75,16 +76,18 @@ void hmi_loop()
 {
     // check button pressed states
     buttonPressed = HMI_BUTTON_NONE;
+    static ButtonEdge openButton;
+    static ButtonEdge closeButton;
     static uint32_t prev_ms_debounce = millis();
-    if (millis() > prev_ms_debounce + debounce_button_ms)
+    if (millis() - prev_ms_debounce >= static_cast<uint32_t>(debounce_button_ms))
     {
         prev_ms_debounce = millis();
-        if (mcp.digitalRead(HMI_BUTTON_OPENDOOR) == BUTTONSTATUS_PRESSED)
+        if (openButton.update(mcp.digitalRead(HMI_BUTTON_OPENDOOR) == BUTTONSTATUS_PRESSED))
         {
             buttonPressed = HMI_BUTTON_OPENDOOR;
         }
 
-        if (mcp.digitalRead(HMI_BUTTON_CLOSEDOOR) == BUTTONSTATUS_PRESSED)
+        if (closeButton.update(mcp.digitalRead(HMI_BUTTON_CLOSEDOOR) == BUTTONSTATUS_PRESSED))
         {
             buttonPressed = HMI_BUTTON_CLOSEDOOR;
         }

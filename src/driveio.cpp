@@ -21,6 +21,10 @@ int previousDoorStatus = DOORSTATUSEXTERNAL;
 // helper variables to create the pulse asynchronously
 unsigned long prev_ms_open = 0;  
 unsigned long prev_ms_close = 0;  
+bool pulseStarted = false;
+bool pulseReportPending = false;
+int completedPin = -1;
+unsigned long completedDuration = 0;
 
 // forward declarations
 void driveio_readiosignals();
@@ -34,6 +38,8 @@ void driveio_init()
     pinMode(CMD_OPENDOOR_OUTPUT, OUTPUT);
     pinMode(STATUS_DOORISOPEN_INPUT, INPUT_PULLDOWN);
     pinMode(CMD_CLOSEDOOR_OUTPUT, OUTPUT);
+    digitalWrite(CMD_OPENDOOR_OUTPUT, LOW);
+    digitalWrite(CMD_CLOSEDOOR_OUTPUT, LOW);
     pinMode(STATUS_DOORISCLOSED_INPUT, INPUT_PULLDOWN);
 }
 
@@ -53,17 +59,33 @@ void driveio_loop()
      */
     if (commandOpenDoorActive)
     {
-        digitalWrite(CMD_OPENDOOR_OUTPUT, HIGH);
-        if (millis() > prev_ms_open + commandDuration_ms){
+        if (!pulseStarted) {
+            digitalWrite(CMD_OPENDOOR_OUTPUT, HIGH);
+            prev_ms_open = millis();
+            pulseStarted = true;
+        }
+        if (millis() - prev_ms_open >= static_cast<unsigned long>(commandDuration_ms)){
                 digitalWrite(CMD_OPENDOOR_OUTPUT, LOW);
+                completedDuration = millis() - prev_ms_open;
+                completedPin = CMD_OPENDOOR_OUTPUT;
+                pulseReportPending = true;
+                pulseStarted = false;
                 commandOpenDoorActive = false;
         }
     }
     if (commandCloseDoorActive)
     {  
-         digitalWrite(CMD_CLOSEDOOR_OUTPUT, HIGH);  
-        if (millis() > prev_ms_close + commandDuration_ms){
+        if (!pulseStarted) {
+            digitalWrite(CMD_CLOSEDOOR_OUTPUT, HIGH);
+            prev_ms_close = millis();
+            pulseStarted = true;
+        }
+        if (millis() - prev_ms_close >= static_cast<unsigned long>(commandDuration_ms)){
                 digitalWrite(CMD_CLOSEDOOR_OUTPUT, LOW);
+                completedDuration = millis() - prev_ms_close;
+                completedPin = CMD_CLOSEDOOR_OUTPUT;
+                pulseReportPending = true;
+                pulseStarted = false;
                 commandCloseDoorActive = false;      
         }
     }
@@ -123,12 +145,10 @@ void driveio_setdoorcommand(int Command)
     if ((Command == DOORCOMMANDOPEN) && (!commandOpenDoorActive))
     {
         commandOpenDoorActive = true;
-        prev_ms_open = millis();  
     }
     if ((Command == DOORCOMMANDCLOSE) && (!commandCloseDoorActive))
     {
         commandCloseDoorActive = true;
-        prev_ms_close = millis(); 
     }
 }
 
@@ -156,4 +176,13 @@ int driveio_getiostatus(int io)
 int driveio_getcurrentdoorstatus()
 {
     return currentDoorStatus;
+}
+
+bool driveio_takepulsereport(int* pin, unsigned long* duration)
+{
+    if (!pulseReportPending) return false;
+    *pin = completedPin;
+    *duration = completedDuration;
+    pulseReportPending = false;
+    return true;
 }

@@ -9,11 +9,13 @@
 // Include local libraries/headers
 #include "config.h"
 #include "driveio.h"
+#include "door_state.h"
 #include "hmi.h"
 #include "util.h"
 #include "mqtt.h"
 #include "sensors.h"
 #include "network.h"
+#include "input_capture.h"
 
 EthernetClient ethClient;
 
@@ -28,8 +30,6 @@ unsigned long millisWhenStarted_ms;
 int ledState = LOW;
 
 // maintain door status
-int oldDoorStatus = 0;
-int newDoorStatus = 0;
 int lastCommand = 0;
 
 // initial page to display on the display after system start
@@ -45,9 +45,7 @@ void watchdog_onShutdown();
 void publish_sensor_values();
 void command_open(String fromSource);
 void command_close(String fromSource);
-void status_isopen();
-void status_isclosed();
-void status_ismovingorstopped();
+void show_door_state();
 void show_systeminfo();
 void show_page_sensors();
 void show_page_overview();
@@ -55,6 +53,82 @@ void show_page_driveio();
 void show_page_hmi();
 void show_page_mqtt();
 void show_page_system();
+
+// Type d in the USB serial monitor to capture input levels for 30 seconds.
+bool input_diagnostic_loop()
+{
+  static InputCapture<256> capture;
+  static bool active = false;
+  static unsigned long startedMs = 0;
+  static unsigned long watchdogMs = 0;
+  if (!active) {
+    if (driveio_doorcommandactive() || mqtt_isrestartrequested()) return false;
+    if (!Serial.available() || Serial.read() != 'd') return false;
+    // Prevent commands arriving on the old MQTT session during the pause.
+    ethClient.stop();
+    Serial.println("DIAG: START 30 seconds; use original remote only. Inputs D1/D3; Arduino commands paused.");
+    Serial.flush();
+    startedMs = watchdogMs = millis();
+    watchdog.clear();
+    capture.reset(micros());
+    active = true;
+  }
+  const uint8_t levels = (digitalRead(STATUS_DOORISOPEN_INPUT) ? 1 : 0) |
+                         (digitalRead(STATUS_DOORISCLOSED_INPUT) ? 2 : 0);
+  capture.record(micros(), levels);
+  if (millis() - watchdogMs >= 100) {
+    watchdog.clear();
+    watchdogMs = millis();
+  }
+  if (millis() - startedMs < 30000) return true;
+
+  Serial.println("DIAG: END; buffered transitions follow (time from capture start)");
+  for (size_t i = 0; i < capture.count; ++i) {
+    char line[80];
+    snprintf(line, sizeof(line), "DIAG: t=%lu us D1=%u D3=%u",
+             static_cast<unsigned long>(capture.samples[i].us),
+             static_cast<unsigned>(capture.samples[i].levels & 1),
+             static_cast<unsigned>((capture.samples[i].levels >> 1) & 1));
+    Serial.println(line);
+    watchdog.clear();
+  }
+  Serial.print("DIAG: reads="); Serial.print(capture.reads);
+  Serial.print(" max_gap_us="); Serial.print(capture.maxGapUs);
+  Serial.print(" dropped_transitions="); Serial.println(capture.dropped);
+  // External activity invalidates motion inferred before the capture.
+  doorState = DoorStateTracker();
+  active = false;
+  Serial.println("DIAG: normal operation resumes; MQTT reconnects");
+  return true;
+}
+
+// Buffer input transitions during pulses; Serial output only runs after release.
+void trace_drive_inputs(bool pulseActiveAtSample)
+{
+  struct Sample { unsigned long time; int state; bool active; };
+  static Sample samples[16];
+  static unsigned int count = 0;
+  static unsigned int dropped = 0;
+  static int previous = -1;
+  const int input = driveio_getcurrentdoorstatus();
+  if (input != previous) {
+    previous = input;
+    if (count < 16) samples[count++] = {millis(), input, pulseActiveAtSample};
+    else ++dropped;
+  }
+  if (driveio_doorcommandactive()) return;
+  for (unsigned int i = 0; i < count; ++i) {
+    char line[100];
+    snprintf(line, sizeof(line), "IO: t=%lu ms raw=%d pulse=%d (0=external,1=open,2=closed,3=between)",
+             samples[i].time, samples[i].state, samples[i].active ? 1 : 0);
+    Serial.println(line);
+  }
+  if (dropped) {
+    Serial.print("IO: dropped transitions: ");
+    Serial.println(dropped);
+  }
+  count = dropped = 0;
+}
 
 // setup the board an all variables
 void setup()
@@ -101,9 +175,28 @@ void loop()
 {
   // calculate uptime in seconds
   uptime_in_secs = (millis() - millisWhenStarted_ms) / 1000;
+  if (input_diagnostic_loop()) return;
 
   // loop over all modules
+  // driveio_loop samples inputs before releasing an expired command output.
+  const bool pulseActiveAtSample = driveio_doorcommandactive();
   driveio_loop();
+  trace_drive_inputs(pulseActiveAtSample);
+  if (driveio_doorcommandactive()) {
+    if (!mqtt_isrestartrequested()) watchdog.clear();
+    return;
+  }
+  int completedPin;
+  unsigned long pulseDuration;
+  if (driveio_takepulsereport(&completedPin, &pulseDuration)) {
+    Serial.print("IO: pulse complete Arduino D");
+    Serial.print(completedPin);
+    Serial.print(" HIGH duration=");
+    Serial.print(pulseDuration);
+    Serial.println(" ms (software timing)");
+  }
+  doorState.observe(driveio_getcurrentdoorstatus(), pulseActiveAtSample);
+  show_door_state();
   hmi_loop();
   sensors_loop();
   if (!driveio_doorcommandactive() && !mqtt_isrestartrequested())
@@ -124,26 +217,10 @@ void loop()
     watchdog_reset();
   }
 
-  // check if door status was changed
-  if (driveio_doorstatuschanged(&oldDoorStatus, &newDoorStatus))
-  {
-    if ((newDoorStatus == DOORSTATUSOPEN) && (driveio_doorcommandactive()==false))
-    {
-      status_isopen();
-    }
-    if ((newDoorStatus == DOORSTATUSCLOSED) && (driveio_doorcommandactive()==false))
-    {
-      status_isclosed();
-    }
-    if (newDoorStatus == DOORSTATUSMOVINGORSTOPPED)
-    {
-      status_ismovingorstopped();
-    }
-    if (newDoorStatus == DOORSTATUSEXTERNAL)
-    {
-      mqtt_publish(MQTT_TOPICCONTROLCOMMANDSOURCE, MQTT_COMMANDSOURCEEXTERNAL, false);
-    }
-  }
+  int oldInput = 0;
+  int newInput = 0;
+  if (driveio_doorstatuschanged(&oldInput, &newInput) && newInput == DOORSTATUSEXTERNAL)
+    mqtt_publish(MQTT_TOPICCONTROLCOMMANDSOURCE, MQTT_COMMANDSOURCEEXTERNAL, false);
 
   // check for user command (button press on HMI)
   int buttonPressed = hmi_getbuttonpressed();
@@ -198,6 +275,8 @@ void loop()
     }
   }
 
+  if (driveio_doorcommandactive()) return;
+
   if (displayIsOn)
   {
     show_systeminfo();
@@ -211,91 +290,49 @@ void loop()
 }
 
 /*
- * set door to open
+ * Issue a direction pulse without assuming that a repeated command stops motion.
  */
+void command_door(int direction, String fromSource)
+{
+  if (driveio_doorcommandactive()) {
+    Serial.println("RUN: Command ignored: drive pulse active");
+    return;
+  }
+  if (!doorState.command(direction)) {
+    Serial.println("RUN: Command ignored: target end position already reached");
+    return;
+  }
+  Serial.print("RUN: Command: ");
+  Serial.print(direction == DOORCOMMANDOPEN ? "DOOROPEN" : "DOORCLOSE");
+  Serial.println(" (source=" + fromSource + ")");
+  mqtt_publish(MQTT_TOPICCONTROLCOMMANDSOURCE, fromSource, false);
+  driveio_setdoorcommand(direction);
+}
+
 void command_open(String fromSource)
 {
-  if (driveio_doorcommandactive()) {
-    Serial.println("RUN: Command ignored: drive pulse active");
-    return;
-  }
-  char buffer[80];
-  sprintf(buffer, "RUN: Command: DOOROPEN (source=%s)", fromSource.c_str());
-  Serial.println(buffer);
-
-  mqtt_publish(MQTT_TOPICCONTROLGETNEWDOORSTATE, MQTT_COMMANDDOOROPEN, true);
-  mqtt_publish(MQTT_TOPICCONTROLGETCURRENTDOORSTATE, MQTT_STATUSDOOROPENING, true);
-  mqtt_publish(MQTT_TOPICCONTROLCOMMANDSOURCE, fromSource, false);
-
-  driveio_setdoorcommand(DOORCOMMANDOPEN);
-
-  hmi_setled_blinking(HMI_LED_DOORCLOSED, false);
-  hmi_setled_blinking(HMI_LED_DOOROPEN, true);
-  hmi_setled(HMI_LED_DOORCLOSED, LOW);
+  command_door(DOORCOMMANDOPEN, fromSource);
 }
 
-/*
- * set door to close
- */
 void command_close(String fromSource)
 {
-  if (driveio_doorcommandactive()) {
-    Serial.println("RUN: Command ignored: drive pulse active");
-    return;
-  }
-  char buffer[80];
-  sprintf(buffer, "RUN: Command: DOORCLOSE (source=%s)", fromSource.c_str());
-  Serial.println(buffer);
-
-  mqtt_publish(MQTT_TOPICCONTROLGETNEWDOORSTATE, MQTT_COMMANDDOORCLOSE, true);
-  mqtt_publish(MQTT_TOPICCONTROLGETCURRENTDOORSTATE, MQTT_STATUSDOORCLOSING, true);
-  mqtt_publish(MQTT_TOPICCONTROLCOMMANDSOURCE, fromSource, false);
-
-  driveio_setdoorcommand(DOORCOMMANDCLOSE);
-
-  hmi_setled(HMI_LED_DOOROPEN, LOW);
-  hmi_setled_blinking(HMI_LED_DOOROPEN, false);
-  hmi_setled_blinking(HMI_LED_DOORCLOSED, true);
+  command_door(DOORCOMMANDCLOSE, fromSource);
 }
 
-/*
- *  door is open
- */
-void status_isopen()
+// LEDs follow the same logical state as MQTT. Unknown: both off.
+void show_door_state()
 {
-  Serial.println("RUN: STATUS: DOOROPEN");
-
-  mqtt_publish(MQTT_TOPICCONTROLGETCURRENTDOORSTATE, MQTT_STATUSDOOROPEN, true);
-  mqtt_publish(MQTT_TOPICCONTROLGETNEWDOORSTATE, MQTT_COMMANDDOOROPEN, true);
-
-  hmi_setled_blinking(HMI_LED_DOOROPEN, false);
-  hmi_setled_blinking(HMI_LED_DOORCLOSED, false);
-  hmi_setled(HMI_LED_DOOROPEN, HIGH);
-  hmi_setled(HMI_LED_DOORCLOSED, LOW);
-}
-
-/*
- *  door is closed
- */
-void status_isclosed()
-{
-  Serial.println("RUN: STATUS: DOORCLOSED");
-
-  mqtt_publish(MQTT_TOPICCONTROLGETCURRENTDOORSTATE, MQTT_STATUSDOORCLOSED, true);
-  mqtt_publish(MQTT_TOPICCONTROLGETNEWDOORSTATE, MQTT_COMMANDDOORCLOSE, true);
-
-  hmi_setled_blinking(HMI_LED_DOOROPEN, false);
-  hmi_setled_blinking(HMI_LED_DOORCLOSED, false);
-  hmi_setled(HMI_LED_DOOROPEN, LOW);
-  hmi_setled(HMI_LED_DOORCLOSED, HIGH);
-}
-
-/*
- *  door is closed
- */
-void status_ismovingorstopped()
-{
-  Serial.println("RUN: STATUS: DOORMOVINGORSTOPPED");
+  static DoorState displayed = DoorState::Unknown;
+  static bool initialized = false;
+  if (initialized && displayed == doorState.state) return;
+  displayed = doorState.state;
+  initialized = true;
+  hmi_setled_blinking(HMI_LED_DOOROPEN, displayed == DoorState::Opening);
+  hmi_setled_blinking(HMI_LED_DOORCLOSED, displayed == DoorState::Closing);
+  if (displayed != DoorState::Opening)
+    hmi_setled(HMI_LED_DOOROPEN, displayed == DoorState::Open ? HIGH : LOW);
+  if (displayed != DoorState::Closing)
+    hmi_setled(HMI_LED_DOORCLOSED, displayed == DoorState::Closed ? HIGH : LOW);
 }
 
 /*
