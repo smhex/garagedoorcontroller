@@ -6,6 +6,7 @@
 
 #include "config.h"
 #include "mqtt.h"
+#include "mqtt_log.h"
 #include "network.h"
 #include "driveio.h"
 #include <Dns.h>
@@ -128,12 +129,12 @@ void onTopicControlSetNewDoorStateReceived(const String &payload, const size_t s
     // Copy command topic back if payload is valid
     if (!(payload == MQTT_COMMANDDOOROPEN || payload == MQTT_COMMANDDOORCLOSE))
     {
-        sprintf(buffer,"RUN: Subscribe: set %s to %s (invalid)",MQTT_TOPICCONTROLSETNEWDOORSTATE, payload.c_str());
+        mqtt_format_received(buffer, sizeof(buffer), MQTT_TOPICCONTROLSETNEWDOORSTATE, payload.c_str(), false);
         Serial.println(buffer);
     }
     else
     {
-        sprintf(buffer,"RUN: Subscribe: set %s to %s",MQTT_TOPICCONTROLSETNEWDOORSTATE, payload.c_str());
+        mqtt_format_received(buffer, sizeof(buffer), MQTT_TOPICCONTROLSETNEWDOORSTATE, payload.c_str(), true);
         Serial.println(buffer);
         command = payload;
       }
@@ -149,12 +150,12 @@ void onTopicSystemRestartReceived(const String &payload, const size_t size)
 
     if (payload != MQTT_SYSTEMRESTART)
     {
-        sprintf(buffer,"RUN: Subscribe: set %s to %s (invalid)", MQTT_TOPICSYSTEM_RESTART, payload.c_str());
+        mqtt_format_received(buffer, sizeof(buffer), MQTT_TOPICSYSTEM_RESTART, payload.c_str(), false);
         Serial.println(buffer);
     }
     else
     {
-        sprintf(buffer,"RUN: Subscribe: set %s to %s", MQTT_TOPICSYSTEM_RESTART, payload.c_str());
+        mqtt_format_received(buffer, sizeof(buffer), MQTT_TOPICSYSTEM_RESTART, payload.c_str(), true);
         Serial.println(buffer);
         isRestartRequested = true;
         mqtt_publish(MQTT_TOPICSYSTEM_RESTART, "", false);

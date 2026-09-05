@@ -215,6 +215,10 @@ void loop()
  */
 void command_open(String fromSource)
 {
+  if (driveio_doorcommandactive()) {
+    Serial.println("RUN: Command ignored: drive pulse active");
+    return;
+  }
   char buffer[80];
   sprintf(buffer, "RUN: Command: DOOROPEN (source=%s)", fromSource.c_str());
   Serial.println(buffer);
@@ -235,6 +239,10 @@ void command_open(String fromSource)
  */
 void command_close(String fromSource)
 {
+  if (driveio_doorcommandactive()) {
+    Serial.println("RUN: Command ignored: drive pulse active");
+    return;
+  }
   char buffer[80];
   sprintf(buffer, "RUN: Command: DOORCLOSE (source=%s)", fromSource.c_str());
   Serial.println(buffer);

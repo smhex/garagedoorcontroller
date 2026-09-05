@@ -4,6 +4,13 @@ on:
   push:
     branches:
       - master
+      - dev
+      - 'release/**'
+  pull_request:
+    branches:
+      - master
+      - dev
+      - 'release/**'
 
 jobs:
   build:
@@ -32,3 +39,5 @@ jobs:
         pip install --upgrade platformio
     - name: Run PlatformIO
       run: pio run -e mkrzero-release
+    - name: Run host regression tests
+      run: python tests/host/run.py
