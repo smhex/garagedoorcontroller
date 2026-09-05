@@ -5,6 +5,11 @@ the requested output and sets current state to `stopped`, regardless of directio
 The next command selects the new direction. The target stays at the previous
 direction on stop; HomeKit has no stopped target. Both LEDs stop blinking on stop.
 Current/target state is published after the pulse and restored on MQTT reconnect.
+Input samples taken during the controller's own command pulse are ignored by the
+state tracker, including the sample read just before the output is released.
+After release, a persistent end position is accepted on the next input sample.
+This avoids interpreting command-coupled bus levels as an actual end position;
+it does not filter pulse gaps outside the command window.
 
 Check with local buttons and MQTT, waiting for each 500 ms pulse to finish:
 

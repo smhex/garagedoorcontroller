@@ -10,7 +10,10 @@ public:
     DoorState state = DoorState::Unknown;
     int target = 0;
 
-    void observe(int input) {
+    void observe(int input, bool commandPulseActive = false) {
+        // The command can affect the shared bus status while its output is held.
+        // Do not consume these samples, including the last sample before release.
+        if (commandPulseActive) return;
         if (input == observed) return;
         observed = input;
         if (input == DOORSTATUSOPEN) {

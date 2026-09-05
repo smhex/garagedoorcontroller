@@ -19,6 +19,10 @@ static void test_stop_state() {
                 assert(tracker.command(startDirection));
                 const DoorState moving = startDirection == DOORCOMMANDOPEN ? DoorState::Opening : DoorState::Closing;
                 assert(tracker.state == moving);
+                // Command-coupled samples must not masquerade as end positions.
+                tracker.observe(startDirection == DOORCOMMANDOPEN ? DOORSTATUSOPEN : DOORSTATUSCLOSED, true);
+                tracker.observe(DOORSTATUSEXTERNAL, true);
+                assert(tracker.state == moving);
                 // The starting end switch remains active briefly after the command.
                 tracker.observe(startInput);
                 assert(tracker.state == moving);
@@ -27,6 +31,8 @@ static void test_stop_state() {
                 assert(tracker.command(stopDirection));
                 assert(tracker.state == DoorState::Stopped);
                 assert(tracker.target == startDirection);
+                tracker.observe(stopDirection == DOORCOMMANDOPEN ? DOORSTATUSOPEN : DOORSTATUSCLOSED, true);
+                assert(tracker.state == DoorState::Stopped);
                 tracker.observe(DOORSTATUSMOVINGORSTOPPED);
                 assert(tracker.state == DoorState::Stopped);
                 assert(tracker.command(resumeDirection));
@@ -51,7 +57,8 @@ static void test_stop_state() {
     // An end switch reached during an active pulse is retained in the model.
     tracker.command(DOORCOMMANDCLOSE);
     tracker.observe(DOORSTATUSMOVINGORSTOPPED);
-    tracker.observe(DOORSTATUSCLOSED);
+    tracker.observe(DOORSTATUSCLOSED, true);
+    assert(tracker.state == DoorState::Closing);
     tracker.observe(DOORSTATUSCLOSED);
     assert(tracker.state == DoorState::Closed);
 

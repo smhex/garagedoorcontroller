@@ -100,8 +100,10 @@ void loop()
   uptime_in_secs = (millis() - millisWhenStarted_ms) / 1000;
 
   // loop over all modules
+  // driveio_loop samples inputs before releasing an expired command output.
+  const bool pulseActiveAtSample = driveio_doorcommandactive();
   driveio_loop();
-  doorState.observe(driveio_getcurrentdoorstatus());
+  doorState.observe(driveio_getcurrentdoorstatus(), pulseActiveAtSample);
   show_door_state();
   hmi_loop();
   sensors_loop();
