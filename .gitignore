@@ -6,3 +6,4 @@
 .vscode
 .DS_Store
 output.log
+include/config_local.h

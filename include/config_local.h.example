@@ -1,0 +1,10 @@
+#pragma once
+
+// Copy this file to config_local.h and replace every placeholder with values
+// from your local network. config_local.h is intentionally ignored by Git.
+#define GDC_MAC_ADDRESS {0x02, 0x00, 0x00, 0x00, 0x00, 0x01}
+#define GDC_MQTT_BROKER "mqtt.example.invalid"
+#define GDC_MQTT_PORT 1883
+#define GDC_MQTT_CLIENT_ID "garage-door-controller"
+#define GDC_MQTT_USERNAME "your-mqtt-user"
+#define GDC_MQTT_PASSWORD "change-this-password"

@@ -51,11 +51,13 @@ If you want to use a different configuration the pins can be assigned in *config
 
 ## Ethernet/MQTT interface
 This solution uses wired Ethernet with DHCP. The router/DHCP server supplies the
-IP address, subnet mask, gateway and DNS server. Only the MAC address is configured
-in `src/config.cpp`; it must be unique on your local network:
+IP address, subnet mask, gateway and DNS server. Local MAC and MQTT settings are
+kept outside the Git repository. Copy `include/config_local.h.example` to
+`include/config_local.h`, then replace every placeholder with values from your
+network. The local file is ignored by Git:
 
 ```cpp
-byte mac[] = {0x02, 0x00, 0x00, 0x00, 0x00, 0x01};
+#define GDC_MAC_ADDRESS {0x02, 0x00, 0x00, 0x00, 0x00, 0x01}
 ```
 
 `src/network.cpp` acquires and renews the lease. DHCP attempts use a 2000 ms
@@ -99,22 +101,20 @@ or another MQTT client can subscribe to this topic and read the JSON `ip` value
 for diagnostics. `gdc/system/status` is retained as `online` while the MQTT
 connection is active and changes to `offline` through the MQTT last will.
 
-The MQTT functionality is implemented using the MQTTPubSubClient library. There are some configuration settings in *config.cpp*.
+The MQTT functionality is implemented using the MQTTPubSubClient library. Set
+the following values in the ignored `include/config_local.h` file:
 
+```cpp
+#define GDC_MQTT_BROKER "mqtt.example.invalid"
+#define GDC_MQTT_PORT 1883
+#define GDC_MQTT_CLIENT_ID "garage-door-controller"
+#define GDC_MQTT_USERNAME "your-mqtt-user"
+#define GDC_MQTT_PASSWORD "change-this-password"
 ```
-const char mqttBrokerAddress[] = "mqtt.example.invalid";
-const unsigned int mqttBrokerPort = 1883;
-String mqttClientID = "garage-door-controller";
-String mqttUsername = "your-mqtt-user";
-String mqttPassword = "change-this-password";
-String mqttLastWillMsg = "offline";
-String mqttFirstWillMsg = "online";
-````
 
-The MAC address, broker address and credentials above are placeholders. Set them
-to values from your network before building. The MAC address must be unique on
-your LAN. `mqttClientID` must also be unique on brokers that enforce unique
-client IDs.
+The example values are deliberately nonfunctional. The MAC address must be unique
+on your LAN, and `GDC_MQTT_CLIENT_ID` must be unique on brokers that enforce
+unique client IDs. Do not commit `config_local.h`.
 
 ## Homebridge
 The interface to Homebrigde is basically the MQTT broker. The garage door controller provides a set of specific topics which will be read or written by the Homebridge plugin *homebridge-mqttthing*. For more information please read the plugin's [documentation](https://github.com/arachnetech/homebridge-mqttthing/blob/master/docs/Accessories.md#garage-door-opener) for setting up a garage door opener accessory in Homebridge. Please note that this controller does not support the optional topcis. You can use the following configuration to get started:
