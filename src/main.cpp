@@ -16,6 +16,7 @@
 #include "sensors.h"
 #include "network.h"
 #include "input_capture.h"
+#include "time_math.h"
 
 EthernetClient ethClient;
 
@@ -280,7 +281,7 @@ void loop()
   if (displayIsOn)
   {
     show_systeminfo();
-    if (millis() > prev_displayTimeout_ms + displayTimeout_ms)
+    if (time_elapsed(millis(), prev_displayTimeout_ms, displayTimeout_ms))
     {
       displayIsOn = false;
       hmi_display_off(displayIsOn);

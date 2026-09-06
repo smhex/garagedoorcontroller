@@ -11,6 +11,21 @@
 #include "button_edge.h"
 #include "input_capture.h"
 #include "mqtt_delivery.h"
+#include "time_math.h"
+
+static void test_time_math() {
+    assert(!time_elapsed(100, 100, 1));
+    assert(!time_elapsed(199, 100, 100));
+    assert(time_elapsed(200, 100, 100));
+    assert(time_elapsed(201, 100, 100));
+    assert(!time_elapsed(UINT32_MAX - 1, UINT32_MAX - 50, 50));
+    assert(time_elapsed(UINT32_MAX, UINT32_MAX - 50, 50));
+    assert(!time_elapsed(0, UINT32_MAX - 50, 52));
+    assert(time_elapsed(0, UINT32_MAX - 50, 51));
+    assert(!time_elapsed(49, UINT32_MAX - 50, 101));
+    assert(time_elapsed(50, UINT32_MAX - 50, 101));
+    assert(time_elapsed(UINT32_MAX, 0, UINT32_MAX));
+}
 
 static void test_mqtt_delivery() {
     MqttRestart restart;
@@ -224,6 +239,8 @@ int main() {
     test_pulse_timing();
     test_input_capture();
     test_mqtt_delivery();
+    test_time_math();
+    puts("PASS: elapsed timers at boundaries and across 32-bit counter wrap");
     puts("PASS: retained restart deletion, ACK gating, failure retry/wrap, duplicate requests and send counts");
     puts("PASS: input capture, unchanged levels, overflow, timer wrap and reset");
     puts("PASS: delayed pulse start, exact duration, timer wrap, one-shot duration reports");
