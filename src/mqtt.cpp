@@ -7,6 +7,7 @@
 #include "config.h"
 #include "mqtt.h"
 #include "mqtt_log.h"
+#include "mqtt_delivery.h"
 #include "network.h"
 #include "driveio.h"
 #include "door_state.h"
@@ -18,17 +19,30 @@ MQTTPubSub::PubSubClient<256> mqttClient;
 
 String command ="";
 
-int numPacketsReceived = 0;
-int numPacketsSent = 0;
+uint32_t numPacketsReceived = 0;
+uint32_t numPacketsSent = 0;
 
 bool mqttFirstRun = true;
 bool mqttInitialized = false;
 unsigned long lastConnectAttempt_ms = 0;
 bool connectAttempted = false;
-bool isRestartRequested = false;
+MqttRestart restartRequest;
 bool doorStatePublished = false;
 DoorState publishedDoorState = DoorState::Unknown;
 int publishedDoorTarget = 0;
+
+bool mqtt_send(const String& topic, const String& payload, bool retain, int qos = 0)
+{
+    if (!mqtt_isconnected() || !network_isready() || driveio_doorcommandactive() || restartRequest.requested()) return false;
+    if (mqtt_counted_send(numPacketsSent, [&]() {
+        return mqttClient.publish(topic, payload, retain, qos);
+    })) return true;
+    Serial.print("MQTT: Publish failed: ");
+    Serial.print(topic);
+    Serial.print("; library error: ");
+    Serial.println(static_cast<int>(mqttClient.getLastError()));
+    return false;
+}
 
 // Retain the latest logical state across suppressed sends and network outages.
 void mqtt_publish_door_state()
@@ -44,13 +58,11 @@ void mqtt_publish_door_state()
         case DoorState::Closing: state = MQTT_STATUSDOORCLOSING; break;
         case DoorState::Unknown: break;
     }
-    if (!mqttClient.publish(MQTT_TOPICCONTROLGETCURRENTDOORSTATE, state, true, 0)) return;
-    numPacketsSent++;
+    if (!mqtt_send(MQTT_TOPICCONTROLGETCURRENTDOORSTATE, state, true)) return;
     if (doorState.target != 0) {
-        if (!mqttClient.publish(MQTT_TOPICCONTROLGETNEWDOORSTATE,
+        if (!mqtt_send(MQTT_TOPICCONTROLGETNEWDOORSTATE,
             doorState.target == DOORCOMMANDOPEN ? MQTT_COMMANDDOOROPEN : MQTT_COMMANDDOORCLOSE,
             true, 0)) return;
-        numPacketsSent++;
     }
     Serial.print("RUN: Door state published: ");
     Serial.println(state);
@@ -174,6 +186,7 @@ void onTopicSystemRestartReceived(const String &payload, const size_t size)
 {
     char buffer[80];
     numPacketsReceived++;
+    if (payload.length() == 0) return; // Echo of retained-command deletion.
 
     if (payload != MQTT_SYSTEMRESTART)
     {
@@ -184,8 +197,7 @@ void onTopicSystemRestartReceived(const String &payload, const size_t size)
     {
         mqtt_format_received(buffer, sizeof(buffer), MQTT_TOPICSYSTEM_RESTART, payload.c_str(), true);
         Serial.println(buffer);
-        isRestartRequested = true;
-        mqtt_publish(MQTT_TOPICSYSTEM_RESTART, "", false);
+        restartRequest.request(); // Do not publish recursively inside the callback.
       }
 }
 
@@ -193,12 +205,11 @@ void onTopicSystemRestartReceived(const String &payload, const size_t size)
  * This function publishes a topic. It passes the parameters without change to the
  * underlying mqtt client but adds a serial print for logging purposes
  */
-void mqtt_publish(String topic, String payload, bool retain)
+bool mqtt_publish(String topic, String payload, bool retain)
 {
-    if (!mqtt_isconnected() || !network_isready() || driveio_doorcommandactive()) return;
-    Serial.println("RUN: Publish: set " + topic + " to " + payload);
-    mqttClient.publish(topic, payload, retain, 0);
-    numPacketsSent++;
+    if (!mqtt_send(topic, payload, retain)) return false;
+    Serial.println("RUN: Publish sent (QoS0): set " + topic + " to " + payload);
+    return true;
 }
 
 /*
@@ -216,7 +227,7 @@ String mqtt_getcommand()
  */
 void mqtt_loop()
 {
-    if (!mqttInitialized || !network_isready() || driveio_doorcommandactive()) return;
+    if (!mqttInitialized || !network_isready() || driveio_doorcommandactive() || restartRequest.requested()) return;
 
     // if connection to the broker is lost, try to reconnect
     if (!mqttClient.isConnected())
@@ -226,6 +237,14 @@ void mqtt_loop()
     else
     {
         mqttClient.update();
+        if (restartRequest.service(millis(), mqttClient.isConnected(),
+            [](const char* topic, const char* payload, bool retain, int qos) {
+                return mqtt_send(topic, payload, retain, qos);
+            })) {
+            command = "";
+            Serial.println("MQTT: Retained restart command cleared (PUBACK); watchdog restart armed");
+            return;
+        }
         mqtt_publish_door_state();
         if (mqttFirstRun)
         {
@@ -241,23 +260,20 @@ void mqtt_loop()
             // serialize json document into global buffer and publish
             // attention: size of buffer is limited to 256 bytes
             serializeJson(jsonDoc, jsonBuffer);
-            mqttClient.publish(MQTT_TOPICSYSTEMINFO, jsonBuffer, true, 0);
+            if (mqtt_send(MQTT_TOPICSYSTEMINFO, jsonBuffer, true)) mqttFirstRun = false;
         }
 
         // publish uptime message and online status every 1s
         static uint32_t prev_ms = millis();
         char buffer[12];
         sprintf(buffer, "%lu", uptime_in_secs);
-        if (millis() > prev_ms + 1000)
+        if (uint32_t(millis() - prev_ms) >= 1000)
         {
             prev_ms = millis();
-            mqttClient.publish(MQTT_TOPICSYSTEMUPTIME, buffer);
-            numPacketsSent++;
+            mqtt_send(MQTT_TOPICSYSTEMUPTIME, buffer, false);
             
-            mqttClient.publish(MQTT_TOPICSYSTEMSTATUS, mqttFirstWillMsg, true, 0);
-            numPacketsSent++;
+            mqtt_send(MQTT_TOPICSYSTEMSTATUS, mqttFirstWillMsg, true);
         }
-        mqttFirstRun = false;
     }
 
     // let other loops run
@@ -267,7 +283,7 @@ void mqtt_loop()
 /*
 * Returns the number of packets received since start
 */
-int mqtt_getpacketsreceived()
+uint32_t mqtt_getpacketsreceived()
 {
     return numPacketsReceived;
 }
@@ -275,7 +291,7 @@ int mqtt_getpacketsreceived()
 /*
 * Returns the number of packets sent since start
 */
-int mqtt_getpacketssent()
+uint32_t mqtt_getpacketssent()
 {
     return numPacketsSent;
 }
@@ -297,5 +313,5 @@ bool mqtt_isconnected()
 */
 bool mqtt_isrestartrequested()
 {
-    return isRestartRequested;
+    return restartRequest.requested();
 }
