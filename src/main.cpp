@@ -379,7 +379,8 @@ void publish_sensor_values()
     mqtt_publish("gdc/system/sensors/status", valid ? "available" : "unavailable", true);
     if (!valid) return;
     // json document
-    DynamicJsonDocument jsonSensorValuesDoc(256);
+    // Schema is fixed and bounded; avoid heap allocation on a long-running controller.
+    StaticJsonDocument<256> jsonSensorValuesDoc;
     char jsonSensorValuesBuffer[256];
 
     JsonObject sensorTemperature = jsonSensorValuesDoc.createNestedObject("temperature");

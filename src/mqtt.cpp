@@ -249,7 +249,8 @@ void mqtt_loop()
         if (mqttFirstRun)
         {
             // global buffer for dealing with json packets
-            DynamicJsonDocument jsonDoc(128);
+            // The system-info schema is fixed; a stack document cannot fragment the heap.
+            StaticJsonDocument<128> jsonDoc;
             char jsonBuffer[128];
 
             // prepare json payload for info topic
