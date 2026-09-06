@@ -13,6 +13,14 @@ As I own a Marantec model Comfort 220 with Systembus I cannot guarantee that it 
 - Arduino Environmental sensor [MKR ENV Shield](https://docs.arduino.cc/hardware/mkr-env-shield)
 - Display module [OLED Display Shield](https://www.hwhardsoft.de/deutsch/projekte/display-shield/) from Zihatec with additional buttons and leds
 
+The ENV shield is optional at runtime. Failed initialization or invalid sensor
+readings leave the door controller running, with initialization retries every
+30 seconds. Measurements run every ten seconds. MQTT topic
+`gdc/system/sensors/status` reports retained `available` or `unavailable`; numeric
+snapshots are omitted while unavailable. Consumers should use this status to
+avoid displaying cached measurements as current. See the
+[sensor test guide](tests/host/SENSORS.md) for checks and shared-I2C limitations.
+
 
 # Software
 The purpose of this controller is to provide connectivity to my Smarthome system. I am using [Homebridge](https://homebridge.io), a fantastic piece of software to connect and extend Apple's HomeKit system. As I didn't want to develop a native interface an alternative was needed. Luckily, MQTT is a lightweight protocol which is supported by many other systems. In this setup you will need:

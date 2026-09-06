@@ -370,6 +370,9 @@ void publish_sensor_values()
 {
   if (timespan_ten_seconds() | mainFirstRun)
   {
+    const bool valid = sensors_isvalid();
+    mqtt_publish("gdc/system/sensors/status", valid ? "available" : "unavailable", true);
+    if (!valid) return;
     // json document
     DynamicJsonDocument jsonSensorValuesDoc(256);
     char jsonSensorValuesBuffer[256];
@@ -458,6 +461,11 @@ void show_page_overview()
 */
 void show_page_sensors()
 {
+  if (!sensors_isvalid()) {
+    String text[2] = {"Sensor values", "unavailable"};
+    hmi_display_frame("Sensors", text, 2);
+    return;
+  }
   String text[4] = {
       "Temperature: " + toString(sensors_get_temperature(), 1) + "\xb0" + "C",
       "Humidity: " + toString(sensors_get_humidity()) + "%",
