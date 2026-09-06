@@ -1,5 +1,20 @@
 # Changelog
 
+## 0.1.10 — development
+
+- Keep the controller operating when environmental sensors are absent or return
+  invalid values. Sensor conversion waits are bounded, measurements run every
+  ten seconds, and `gdc/system/sensors/status` reports availability (#31).
+- Confirm retained MQTT restart-command cleanup before arming the watchdog reboot
+  and record failed publication attempts accurately (#32).
+- Make display, LED and periodic timers safe across the 32-bit `millis()`
+  wraparound after about 49.7 days (#33).
+
+Validation: sensor, MQTT restart, timing and previous regression tests pass. The
+installed ENV shield, display, local/MQTT door control, end positions, sensor
+reporting and a retained MQTT restart were verified on hardware. `release/0.1.9`
+remains the latest release branch; this version is currently on `dev`.
+
 ## 0.1.9 — release preparation
 
 - Bound incoming MQTT diagnostics and prevent overlapping drive command pulses (#29).

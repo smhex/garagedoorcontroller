@@ -6,6 +6,7 @@
 #include "config.h"
 #include "hmi.h"
 #include "button_edge.h"
+#include "time_math.h"
 
 // internal defines
 #define BUTTONSTATUS_PRESSED 0 // inputs use internal pullup's
@@ -107,7 +108,7 @@ void hmi_loop()
     if (doorOpenLedBlink)
     {
         static uint32_t prev_ms_on = millis();
-        if (millis() > prev_ms_on + ledBlinkDuration_ms)
+        if (time_elapsed(millis(), prev_ms_on, ledBlinkDuration_ms))
         {
             prev_ms_on = millis();
             int ledState = hmi_getled(HMI_LED_DOOROPEN);
@@ -118,7 +119,7 @@ void hmi_loop()
     if (doorClosedLedBlink)
     {
         static uint32_t prev_ms_on = millis();
-        if (millis() > prev_ms_on + ledBlinkDuration_ms)
+        if (time_elapsed(millis(), prev_ms_on, ledBlinkDuration_ms))
         {
             prev_ms_on = millis();
             int ledState = hmi_getled(HMI_LED_DOORCLOSED);

@@ -1,5 +1,6 @@
 #include <Arduino.h>
 #include <Ethernet.h>
+#include "time_math.h"
 
 #define every_second     1000
 #define every_10_seconds 10000
@@ -36,7 +37,7 @@ String toString(float fvalue, unsigned int num)
 */
 bool timespan_one_second(){
         static uint32_t prev_ms = millis();   
-        if (millis() > prev_ms + 1000){
+        if (time_elapsed(millis(), prev_ms, 1000)){
                 prev_ms = millis();
                 return true;
         }
@@ -48,7 +49,7 @@ bool timespan_one_second(){
 */
 bool timespan_ten_seconds(){
         static uint32_t prev_ms = millis();   
-        if (millis() > prev_ms + 10000){
+        if (time_elapsed(millis(), prev_ms, 10000)){
                 prev_ms = millis();
                 return true;
         }
