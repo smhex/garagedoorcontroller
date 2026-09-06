@@ -71,7 +71,10 @@ pulses. Connection attempts can still briefly delay button processing between
 pulses; this is not a fully asynchronous network stack. The existing 16-second
 watchdog remains enabled and is serviced between DHCP and MQTT work.
 The current IP is printed as `NET: DHCP address: ...` and shown on the OLED System
-page. A DHCP reservation for the MAC can provide a stable address if desired.
+page. A retained `gdc/system/info` MQTT JSON document also includes the controller
+application, firmware version, author and current DHCP address as `ip`. It is
+republished whenever MQTT reconnects, including after an IP change. A DHCP
+reservation for the MAC can provide a stable address if desired.
 
 The MQTT functionality is implemented using the MQTTPubSubClient library. There are some configuration settings in *config.cpp*.
 

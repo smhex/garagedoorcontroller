@@ -12,6 +12,21 @@
 #include "input_capture.h"
 #include "mqtt_delivery.h"
 #include "time_math.h"
+#include "network_info.h"
+
+static void test_network_info() {
+    char ip[16];
+    assert(format_ipv4(ip, sizeof(ip), 10, 10, 30, 233));
+    assert(strcmp(ip, "10.10.30.233") == 0);
+    assert(format_ipv4(ip, sizeof(ip), 255, 255, 255, 255));
+    assert(strcmp(ip, "255.255.255.255") == 0);
+    char shortBuffer[8];
+    assert(!format_ipv4(shortBuffer, sizeof(shortBuffer), 10, 10, 30, 233));
+    assert(shortBuffer[sizeof(shortBuffer) - 1] == '\0');
+    char empty = 'x';
+    assert(!format_ipv4(&empty, 0, 10, 10, 30, 233));
+    assert(empty == 'x');
+}
 
 static void test_time_math() {
     assert(!time_elapsed(100, 100, 1));
@@ -240,6 +255,8 @@ int main() {
     test_input_capture();
     test_mqtt_delivery();
     test_time_math();
+    test_network_info();
+    puts("PASS: IPv4 system-info formatting and bounded output");
     puts("PASS: elapsed timers at boundaries and across 32-bit counter wrap");
     puts("PASS: retained restart deletion, ACK gating, failure retry/wrap, duplicate requests and send counts");
     puts("PASS: input capture, unchanged levels, overflow, timer wrap and reset");

@@ -8,6 +8,7 @@
 #include "mqtt.h"
 #include "mqtt_log.h"
 #include "mqtt_delivery.h"
+#include "network_info.h"
 #include "network.h"
 #include "driveio.h"
 #include "door_state.h"
@@ -250,17 +251,28 @@ void mqtt_loop()
         {
             // global buffer for dealing with json packets
             // The system-info schema is fixed; a stack document cannot fragment the heap.
-            StaticJsonDocument<128> jsonDoc;
-            char jsonBuffer[128];
+            StaticJsonDocument<256> jsonDoc;
+            char jsonBuffer[256];
+            char ipBuffer[16];
+            const IPAddress ip = Ethernet.localIP();
 
             // prepare json payload for info topic
             jsonDoc["application"] = application;
             jsonDoc["version"] = version;
             jsonDoc["author"] = author;
+            if (!format_ipv4(ipBuffer, sizeof(ipBuffer), ip[0], ip[1], ip[2], ip[3])) {
+                Serial.println("MQTT: Could not format DHCP address for system info");
+                return;
+            }
+            jsonDoc["ip"] = ipBuffer;
 
             // serialize json document into global buffer and publish
             // attention: size of buffer is limited to 256 bytes
-            serializeJson(jsonDoc, jsonBuffer);
+            const size_t bytes = serializeJson(jsonDoc, jsonBuffer, sizeof(jsonBuffer));
+            if (jsonDoc.overflowed() || bytes >= sizeof(jsonBuffer)) {
+                Serial.println("MQTT: System info JSON did not fit its fixed buffer");
+                return;
+            }
             if (mqtt_send(MQTT_TOPICSYSTEMINFO, jsonBuffer, true)) mqttFirstRun = false;
         }
 
