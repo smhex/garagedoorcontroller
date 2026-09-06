@@ -1,0 +1,198 @@
+#include <Arduino.h>
+
+#include "config.h"
+#include "driveio.h"
+#include "input_state_filter.h"
+
+// internal variables holding the different door states
+bool doorStatusIsUnknwon = true;
+bool doorStatusIsOpen = false;
+bool doorStatusIsClosed = false;
+bool doorStatusIsMovingOrStopped = false;
+bool doorStatusIsExternal = false;
+
+// status of active commands
+bool commandOpenDoorActive = false;
+bool commandCloseDoorActive = false;
+
+// helper variables to maintain the door status
+int currentDoorStatus = DOORSTATUSEXTERNAL;
+int previousDoorStatus = DOORSTATUSEXTERNAL;
+InputStateFilter doorInputFilter(DRIVE_INPUT_FILTER_DURATION_MS);
+
+// helper variables to create the pulse asynchronously
+unsigned long prev_ms_open = 0;  
+unsigned long prev_ms_close = 0;  
+bool pulseStarted = false;
+bool pulseReportPending = false;
+int completedPin = -1;
+unsigned long completedDuration = 0;
+
+// forward declarations
+void driveio_readiosignals(bool commandPulseActive);
+
+/*
+* Inits the IO interface pins to the drive (2x Input, 2x Output)
+*/
+void driveio_init()
+{
+    // setup pins and modes
+    pinMode(CMD_OPENDOOR_OUTPUT, OUTPUT);
+    pinMode(STATUS_DOORISOPEN_INPUT, INPUT_PULLDOWN);
+    pinMode(CMD_CLOSEDOOR_OUTPUT, OUTPUT);
+    digitalWrite(CMD_OPENDOOR_OUTPUT, LOW);
+    digitalWrite(CMD_CLOSEDOOR_OUTPUT, LOW);
+    pinMode(STATUS_DOORISCLOSED_INPUT, INPUT_PULLDOWN);
+    doorInputFilter.reset(DOORSTATUSEXTERNAL, millis());
+}
+
+/*
+* The door status is read and if a command is requested the
+* necessary pulse at the corresponding pin is created.
+*/
+void driveio_loop()
+{
+    // read signals
+    const bool commandPulseActiveAtSample = driveio_doorcommandactive();
+    driveio_readiosignals(commandPulseActiveAtSample);
+
+    /* To open or close the door a 500ms (default) pulse is required 
+     * at the output pin(s). The pulse width can be configured via the
+     * variable "commandDuration_ms". The rising edge is generated a 
+     * soon as a driveio_setdoorcommand() is called. 
+     */
+    if (commandOpenDoorActive)
+    {
+        if (!pulseStarted) {
+            digitalWrite(CMD_OPENDOOR_OUTPUT, HIGH);
+            prev_ms_open = millis();
+            pulseStarted = true;
+        }
+        if (millis() - prev_ms_open >= static_cast<unsigned long>(commandDuration_ms)){
+                digitalWrite(CMD_OPENDOOR_OUTPUT, LOW);
+                completedDuration = millis() - prev_ms_open;
+                completedPin = CMD_OPENDOOR_OUTPUT;
+                pulseReportPending = true;
+                pulseStarted = false;
+                commandOpenDoorActive = false;
+        }
+    }
+    if (commandCloseDoorActive)
+    {  
+        if (!pulseStarted) {
+            digitalWrite(CMD_CLOSEDOOR_OUTPUT, HIGH);
+            prev_ms_close = millis();
+            pulseStarted = true;
+        }
+        if (millis() - prev_ms_close >= static_cast<unsigned long>(commandDuration_ms)){
+                digitalWrite(CMD_CLOSEDOOR_OUTPUT, LOW);
+                completedDuration = millis() - prev_ms_close;
+                completedPin = CMD_CLOSEDOOR_OUTPUT;
+                pulseReportPending = true;
+                pulseStarted = false;
+                commandCloseDoorActive = false;      
+        }
+    }
+
+    // let the other loops run
+    yield();
+}
+
+/*
+* Returns the current state of the door and also a flag, indicating
+* whether is has changed or not. The params "oldStatus" and "newStatus"
+* are provided by the caller. 
+*/
+bool driveio_doorstatuschanged(int* oldStatus, int* newStatus){
+    if (currentDoorStatus!=previousDoorStatus){
+        *oldStatus = previousDoorStatus;
+        *newStatus = currentDoorStatus;
+    }
+    return (currentDoorStatus==previousDoorStatus) ? false : true;
+}
+
+/*
+* Reads the IO signals to update internal status variables
+*/
+void driveio_readiosignals(bool commandPulseActive){
+    
+    // preserve previous status
+    previousDoorStatus = currentDoorStatus;
+
+    // get current door status
+    doorStatusIsOpen = digitalRead(STATUS_DOORISOPEN_INPUT);
+    doorStatusIsClosed = digitalRead(STATUS_DOORISCLOSED_INPUT);
+    doorStatusIsExternal = (!doorStatusIsOpen && !doorStatusIsClosed);
+    doorStatusIsMovingOrStopped = (doorStatusIsOpen && doorStatusIsClosed);
+
+    // Decode the raw input state first. Raw pin values remain available through
+    // driveio_getiostatus() and the serial diagnostics.
+    int rawDoorStatus = DOORSTATUSEXTERNAL;
+    if (doorStatusIsMovingOrStopped){
+        rawDoorStatus = DOORSTATUSMOVINGORSTOPPED;
+    }
+    else{
+        if (doorStatusIsOpen){rawDoorStatus = DOORSTATUSOPEN;}
+        if (doorStatusIsClosed){rawDoorStatus = DOORSTATUSCLOSED;}
+    }
+
+    if (commandPulseActive)
+        doorInputFilter.discard(rawDoorStatus, millis());
+    else
+        currentDoorStatus = doorInputFilter.update(rawDoorStatus, millis());
+}
+
+/*
+* Sets the IO signals to request the new door status (open or close).
+* The output is actually set during the loop() function to make it
+* non blocking. 
+*/
+void driveio_setdoorcommand(int Command)
+{
+    // The first command owns both outputs until its pulse has completed.
+    if (driveio_doorcommandactive()) return;
+
+    if ((Command == DOORCOMMANDOPEN) && (!commandOpenDoorActive))
+    {
+        commandOpenDoorActive = true;
+    }
+    if ((Command == DOORCOMMANDCLOSE) && (!commandCloseDoorActive))
+    {
+        commandCloseDoorActive = true;
+    }
+}
+
+/*
+ * Returns true if a command (open/close) is active at the moment. It is
+ * only true during the command pulse
+ * */
+bool driveio_doorcommandactive()
+{
+    return (commandOpenDoorActive || commandCloseDoorActive);
+}
+
+/*
+* Returns the state of the IO. Parameter "io" corresponds with one of
+* input or output pins
+*/
+int driveio_getiostatus(int io)
+{
+    return digitalRead(io);
+}
+
+/*
+* Returns the current door status 
+*/
+int driveio_getcurrentdoorstatus()
+{
+    return currentDoorStatus;
+}
+
+bool driveio_takepulsereport(int* pin, unsigned long* duration)
+{
+    if (!pulseReportPending) return false;
+    *pin = completedPin;
+    *duration = completedDuration;
+    pulseReportPending = false;
+    return true;
+}
