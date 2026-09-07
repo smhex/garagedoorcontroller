@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+- A second open or close command while the controller reports `opening` or
+  `closing` is now an implicit stop. It re-pulses the output that started the
+  movement and publishes `stopped` after the pulse.
+
 ## 1.0.0 - release
 
 This release provides a hardware-validated Ethernet/MQTT garage-door controller

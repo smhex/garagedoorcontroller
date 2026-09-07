@@ -18,11 +18,11 @@ are reset because activity through the remote was not tracked. End the test at
 a known end position before testing normal Arduino commands again. Send `d` again
 for another capture if necessary. Copy the complete START-to-resume log.
 
-This PR follows command-safety (#29). Repeated direction pulses did not stop the
-tested drive. Commands during inferred motion therefore preserve the previous
-motion assumption and target; they do not imply stop or reversal. The requested
-output is still pulsed. There is no automatic `stopped` state in this firmware.
-Current/target state is published after the pulse and restored on MQTT reconnect.
+During inferred motion, a second local or MQTT direction command is an implicit
+stop: it pulses the output that started the current movement, regardless of the
+newly requested direction. The controller then reports `stopped`. A following
+command starts the requested direction normally. Current/target state is
+published after the pulse and restored on MQTT reconnect.
 Input samples taken during the controller's own command pulse are ignored by the
 state tracker, including the sample read just before the output is released.
 After release, a persistent end position is accepted on the next input sample.
@@ -34,8 +34,9 @@ remain unfiltered in the serial diagnostic output.
 Check with local buttons and MQTT, waiting for each 500 ms pulse to finish:
 
 1. From closed, open: expect `opening`, followed by `open` at the end switch.
-2. Repeat a same/opposite direction command during inferred motion: no `STOP` log,
-   no `stopped` publication and no assumed reversal. Verify pulse diagnostics.
+2. Repeat a same/opposite direction command during inferred motion: expect a
+   `DOORSTOP` log, a `stopped` publication, and a pulse on the output used for
+   the original movement. Verify the physical stop separately.
    Repeat from open while closing. Actual motion must be observed separately.
 3. Hold a local door button for more than two seconds: only one command should be
    generated. Release it before issuing the next command.
@@ -67,4 +68,5 @@ Diagnostics after upload:
 Observed with the original remote: closed D1/D3=0/1, travel=1/1, open=1/0.
 A 439 us 0/0 transient was captured at the open end position; a single 0/0 sample
 is not reliable proof of external actuation. The 20 ms filter rejects this known
-transient. Actual Arduino stop functionality remains unresolved.
+transient. The controller can only report stops it initiated itself; external
+stops remain indistinguishable from an intermediate moving state.

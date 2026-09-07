@@ -120,7 +120,7 @@ static void test_input_state_filter() {
     assert(filter.update(DOORSTATUSOPEN, 14) == DOORSTATUSOPEN);
 }
 
-static void test_repeated_commands_preserve_motion() {
+static void test_repeated_commands_stop_motion() {
     for (int startDirection : {DOORCOMMANDOPEN, DOORCOMMANDCLOSE}) {
         for (int stopDirection : {DOORCOMMANDOPEN, DOORCOMMANDCLOSE}) {
             for (int resumeDirection : {DOORCOMMANDOPEN, DOORCOMMANDCLOSE}) {
@@ -139,16 +139,18 @@ static void test_repeated_commands_preserve_motion() {
                 assert(tracker.state == moving);
                 tracker.observe(DOORSTATUSMOVINGORSTOPPED);
                 assert(tracker.state == moving);
-                assert(tracker.command(stopDirection));
-                assert(tracker.state == moving);
+                // Either new direction is an implicit stop and must reuse the
+                // output that initiated the current movement.
+                assert(tracker.stop() == startDirection);
+                assert(tracker.state == DoorState::Stopped);
                 assert(tracker.target == startDirection);
                 tracker.observe(stopDirection == DOORCOMMANDOPEN ? DOORSTATUSOPEN : DOORSTATUSCLOSED, true);
-                assert(tracker.state == moving);
+                assert(tracker.state == DoorState::Stopped);
                 tracker.observe(DOORSTATUSMOVINGORSTOPPED);
-                assert(tracker.state == moving);
+                assert(tracker.state == DoorState::Stopped);
                 assert(tracker.command(resumeDirection));
-                assert(tracker.state == moving);
-                assert(tracker.target == startDirection);
+                assert(tracker.state == (resumeDirection == DOORCOMMANDOPEN ? DoorState::Opening : DoorState::Closing));
+                assert(tracker.target == resumeDirection);
                 tracker.observe(resumeDirection == DOORCOMMANDOPEN ? DOORSTATUSOPEN : DOORSTATUSCLOSED);
                 assert(tracker.state == (resumeDirection == DOORCOMMANDOPEN ? DoorState::Open : DoorState::Closed));
                 assert(!tracker.command(resumeDirection));
@@ -279,7 +281,7 @@ int main() {
     test_pulse(DOORCOMMANDOPEN, DOORCOMMANDCLOSE, CMD_OPENDOOR_OUTPUT, CMD_CLOSEDOOR_OUTPUT);
     test_pulse(DOORCOMMANDCLOSE, DOORCOMMANDOPEN, CMD_CLOSEDOOR_OUTPUT, CMD_OPENDOOR_OUTPUT);
     test_logging();
-    test_repeated_commands_preserve_motion();
+    test_repeated_commands_stop_motion();
     test_pulse_timing();
     test_input_capture();
     test_input_state_filter();
@@ -292,6 +294,6 @@ int main() {
     puts("PASS: input capture, unchanged levels, overflow, timer wrap and reset");
     puts("PASS: stable drive input filtering, short transient rejection and timer wrap");
     puts("PASS: delayed pulse start, exact duration, timer wrap, one-shot duration reports");
-    puts("PASS: no inferred stop/reversal from repeated commands, end switches, unknown state, held buttons");
+    puts("PASS: implicit stop from repeated commands, end switches, unknown state, held buttons");
     puts("PASS: command interlock, duplicate pulses, invalid commands, bounded MQTT logging");
 }

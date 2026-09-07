@@ -1,11 +1,11 @@
 #pragma once
 #include "driveio.h"
 
-enum class DoorState { Unknown, Open, Closed, Opening, Closing };
+enum class DoorState { Unknown, Open, Closed, Opening, Closing, Stopped };
 
 // End switches cannot distinguish intermediate motion from a stopped door.
-// Motion is an assumption after a command, not a measured movement signal.
-// Repeated direction pulses have not stopped the tested drive: never infer stop.
+// Motion and an implicit stop are controller-owned assumptions, not measured
+// movement signals.
 class DoorStateTracker {
 public:
     DoorState state = DoorState::Unknown;
@@ -33,18 +33,27 @@ public:
 
     bool command(int direction) {
         if (direction != DOORCOMMANDOPEN && direction != DOORCOMMANDCLOSE) return false;
-        if (state == DoorState::Opening || state == DoorState::Closing) {
-            // Keep the prior motion assumption and target until an end switch.
-            // Still permit the requested pulse without claiming stop or reversal.
-        } else {
-            if ((state == DoorState::Open && direction == DOORCOMMANDOPEN) ||
-                (state == DoorState::Closed && direction == DOORCOMMANDCLOSE)) return false;
-            departureInput = state == DoorState::Open ? DOORSTATUSOPEN :
-                             state == DoorState::Closed ? DOORSTATUSCLOSED : -1;
-            target = direction;
-            state = direction == DOORCOMMANDOPEN ? DoorState::Opening : DoorState::Closing;
-        }
+        if ((state == DoorState::Open && direction == DOORCOMMANDOPEN) ||
+            (state == DoorState::Closed && direction == DOORCOMMANDCLOSE)) return false;
+        departureInput = state == DoorState::Open ? DOORSTATUSOPEN :
+                         state == DoorState::Closed ? DOORSTATUSCLOSED : -1;
+        target = direction;
+        state = direction == DOORCOMMANDOPEN ? DoorState::Opening : DoorState::Closing;
         return true;
+    }
+
+    bool isMoving() const {
+        return state == DoorState::Opening || state == DoorState::Closing;
+    }
+
+    // The drive stops when either command input is pulsed during travel. Reuse
+    // the output that initiated the current direction, regardless of the newly
+    // requested direction, so a second command is always an implicit stop.
+    int stop() {
+        if (!isMoving()) return 0;
+        const int stopDirection = target;
+        state = DoorState::Stopped;
+        return stopDirection;
     }
 
 private:

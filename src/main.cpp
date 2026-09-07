@@ -291,7 +291,8 @@ void loop()
 }
 
 /*
- * Issue a direction pulse without assuming that a repeated command stops motion.
+ * A second command during travel is an implicit stop. The drive accepts either
+ * command input for this, but pulse the output that started the current travel.
  */
 void command_door(int direction, String fromSource)
 {
@@ -303,15 +304,24 @@ void command_door(int direction, String fromSource)
     Serial.println("RUN: Command ignored: drive pulse active");
     return;
   }
-  if (!doorState.command(direction)) {
+  bool implicitStop = doorState.isMoving();
+  int pulseDirection = direction;
+  if (implicitStop) {
+    pulseDirection = doorState.stop();
+    Serial.print("RUN: Command: DOORSTOP (source=");
+    Serial.print(fromSource);
+    Serial.println(")");
+  } else if (!doorState.command(direction)) {
     Serial.println("RUN: Command ignored: target end position already reached");
     return;
   }
-  Serial.print("RUN: Command: ");
-  Serial.print(direction == DOORCOMMANDOPEN ? "DOOROPEN" : "DOORCLOSE");
-  Serial.println(" (source=" + fromSource + ")");
+  if (!implicitStop) {
+    Serial.print("RUN: Command: ");
+    Serial.print(direction == DOORCOMMANDOPEN ? "DOOROPEN" : "DOORCLOSE");
+    Serial.println(" (source=" + fromSource + ")");
+  }
   mqtt_publish(MQTT_TOPICCONTROLCOMMANDSOURCE, fromSource, false);
-  driveio_setdoorcommand(direction);
+  driveio_setdoorcommand(pulseDirection);
 }
 
 void command_open(String fromSource)
