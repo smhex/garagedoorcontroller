@@ -1,3 +1,4 @@
+#include "debug_console.h"
 #include <Ethernet.h>
 #include "config.h"
 #include "driveio.h"
@@ -12,14 +13,14 @@ unsigned long lastAttempt_ms = 0;
 
 void acquireLease()
 {
-    Serial.println("NET: Requesting DHCP lease");
+    Debug.println("NET: Requesting DHCP lease");
     ready = Ethernet.begin(mac, dhcpTimeout_ms, dhcpResponseTimeout_ms) == 1;
     lastAttempt_ms = millis();
     if (ready) {
-        Serial.print("NET: DHCP address: ");
-        Serial.println(Ethernet.localIP());
+        Debug.print("NET: DHCP address: ");
+        Debug.println(Ethernet.localIP());
     } else {
-        Serial.println("NET: DHCP failed; retry in 10 seconds");
+        Debug.println("NET: DHCP failed; retry in 10 seconds");
     }
 }
 }
@@ -28,7 +29,7 @@ void network_init()
 {
     acquireLease();
     if (Ethernet.hardwareStatus() == EthernetNoHardware) {
-        Serial.println("ERROR: Ethernet shield was not found");
+        Debug.println("ERROR: Ethernet shield was not found");
     }
 }
 
@@ -56,13 +57,13 @@ void network_loop()
     int result = Ethernet.maintain();
     if (result == 1 || result == 3) {
         // Drop stale connections and acquire a fresh lease on the next retry.
-        Serial.println("NET: DHCP renewal failed; reconnecting");
+        Debug.println("NET: DHCP renewal failed; reconnecting");
         ethClient.stop();
         ready = false;
         lastAttempt_ms = millis();
     } else if (result == 2 || result == 4) {
-        Serial.print("NET: DHCP lease renewed: ");
-        Serial.println(Ethernet.localIP());
+        Debug.print("NET: DHCP lease renewed: ");
+        Debug.println(Ethernet.localIP());
         if (Ethernet.localIP() != previousIP) ethClient.stop();
     }
 }

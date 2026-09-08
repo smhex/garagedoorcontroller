@@ -30,6 +30,13 @@ The purpose of this controller is to provide connectivity to my Smarthome system
 - MQTT Broker [Mosquitto](https://mosquitto.org)
 
 # Configuration
+## LAN maintenance
+
+Firmware uploads through PlatformIO and a TCP debug console are available with
+an SD card in the MKR Zero's own slot. An upload must be approved using the local
+Info button; the HMI overview shows the request and transfer progress.
+See [LAN maintenance setup and validation](docs/LAN_MAINTENANCE.md).
+
 ## Hardware Interface
 To control the door by sending commands and reading the status a simple io interface is needed. The required interface is well described [here](https://www.ralf-rathgeber.de/hausautomation/marantec.html). The interface to the Arduino MKR Zero (or any other compatible controller) requires 2 digital output and 2 digital inputs. On my controller the configuration is the following
 

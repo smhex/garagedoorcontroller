@@ -1,6 +1,32 @@
 # Changelog
 
-## Unreleased
+## 1.0.4 - 2026-09-07
+
+- Show the staged firmware version in the English local-update dialog. Preserve
+  its version metadata on the SD card so it remains visible after reboot.
+- Keep the LAN upload protocol compatible with the already installed 1.0.1
+  updater, allowing this update to be installed without a USB bootstrap.
+
+## 1.0.3 - 2026-09-07
+
+## 1.0.2 - 2026-09-07
+
+- Stage LAN uploads before showing the local approval dialog. A verified staged
+  image survives an unanswered dialog and is offered again after reboot.
+- A local or remote door command while the dialog is shown cancels the dialog
+  and removes the staged image. A new upload or controller restart is then
+  required before an update can be approved.
+
+## 1.0.1 - 2026-09-07
+
+- Identify this firmware as 1.0.1 in the HMI, boot log and the retained
+  `gdc/system/info` MQTT payload (`version`). Keep the version in
+  `include/firmware_version.h`; increment it before each changed firmware upload.
+
+- Add PlatformIO LAN firmware staging on the MKR Zero SD card, with a local
+  Info-button approval and HMI progress before rebooting into Arduino SDU.
+- Add a TCP console on port 2323. USB/TCP logs stop after 30 seconds; `d`
+  enables output until reboot. Move the existing input capture command to `c`.
 
 - A second open or close command while the controller reports `opening` or
   `closing` is now an implicit stop. It re-pulses the output that started the

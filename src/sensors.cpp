@@ -1,3 +1,4 @@
+#include "debug_console.h"
 #include <Arduino_MKRENV.h>
 #include <math.h>
 #include "sensors.h"
@@ -16,7 +17,7 @@ void initialize() {
     initialized = ENV.begin() != 0;
     lastAttempt = millis();
     lastSample = millis() - 10000UL;
-    Serial.println(initialized ? "SENSORS: shield ready" :
+    Debug.println(initialized ? "SENSORS: shield ready" :
                    "SENSORS: unavailable; controller continues; retry in 30 seconds");
 }
 }
@@ -40,7 +41,7 @@ void sensors_loop() {
         invalidate();
         initialized = false;
         lastAttempt = millis();
-        Serial.println("SENSORS: invalid reading; values unavailable; retry in 30 seconds");
+        Debug.println("SENSORS: invalid reading; values unavailable; retry in 30 seconds");
         return;
     }
     temperature = t;

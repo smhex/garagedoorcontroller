@@ -1,4 +1,5 @@
 #include "config.h"
+#include "firmware_version.h"
 
 #if defined(__has_include)
 #if __has_include("config_local.h")
@@ -29,7 +30,9 @@
 
 // this information is shown on the OLED display and also sent to the MQTT broker
 String application = "GarageDoorController";
-String version = "1.0.0";
+String version = GDC_FIRMWARE_VERSION;
+// The LAN updater finds this unambiguous marker in a staged binary.
+const char firmwareVersionMarker[] = GDC_FIRMWARE_MARKER;
 String author = "smhex";
 
 // DHCP identifies this controller by MAC; keep it unique on the local network.

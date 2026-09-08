@@ -1,3 +1,4 @@
+#include "debug_console.h"
 // Include libraries
 #include <Arduino.h>
 #include <MQTTPubSubClient.h>
@@ -38,10 +39,10 @@ bool mqtt_send(const String& topic, const String& payload, bool retain, int qos 
     if (mqtt_counted_send(numPacketsSent, [&]() {
         return mqttClient.publish(topic, payload, retain, qos);
     })) return true;
-    Serial.print("MQTT: Publish failed: ");
-    Serial.print(topic);
-    Serial.print("; library error: ");
-    Serial.println(static_cast<int>(mqttClient.getLastError()));
+    Debug.print("MQTT: Publish failed: ");
+    Debug.print(topic);
+    Debug.print("; library error: ");
+    Debug.println(static_cast<int>(mqttClient.getLastError()));
     return false;
 }
 
@@ -66,8 +67,8 @@ void mqtt_publish_door_state()
             doorState.target == DOORCOMMANDOPEN ? MQTT_COMMANDDOOROPEN : MQTT_COMMANDDOORCLOSE,
             true, 0)) return;
     }
-    Serial.print("RUN: Door state published: ");
-    Serial.println(state);
+    Debug.print("RUN: Door state published: ");
+    Debug.println(state);
     publishedDoorState = doorState.state;
     publishedDoorTarget = doorState.target;
     doorStatePublished = true;
@@ -108,35 +109,35 @@ void mqtt_connect()
     DNSClient resolver;
     IPAddress brokerIP;
     resolver.begin(Ethernet.dnsServerIP());
-    Serial.print("MQTT: DNS server: ");
-    Serial.println(Ethernet.dnsServerIP());
+    Debug.print("MQTT: DNS server: ");
+    Debug.println(Ethernet.dnsServerIP());
     int dnsResult = resolver.getHostByName(mqttBrokerAddress, brokerIP, 500);
     if (dnsResult != 1)
     {
-        Serial.print("MQTT: DNS lookup failed, code: ");
-        Serial.println(dnsResult);
-        Serial.println("MQTT: Retry in 10 seconds");
+        Debug.print("MQTT: DNS lookup failed, code: ");
+        Debug.println(dnsResult);
+        Debug.println("MQTT: Retry in 10 seconds");
         ethClient.stop();
         lastConnectAttempt_ms = millis();
         return;
     }
-    Serial.print("MQTT: Broker IP: ");
-    Serial.print(brokerIP);
-    Serial.print(":");
-    Serial.println(mqttBrokerPort);
+    Debug.print("MQTT: Broker IP: ");
+    Debug.print(brokerIP);
+    Debug.print(":");
+    Debug.println(mqttBrokerPort);
     if (!ethClient.connect(brokerIP, mqttBrokerPort))
     {
-        Serial.println("MQTT: TCP connection failed; retry in 10 seconds");
+        Debug.println("MQTT: TCP connection failed; retry in 10 seconds");
         ethClient.stop();
         lastConnectAttempt_ms = millis();
         return;
     }
-    Serial.println("MQTT: TCP connected");
+    Debug.println("MQTT: TCP connected");
     if (!mqttClient.connect(mqttClientID, mqttUsername, mqttPassword))
     {
-        Serial.print("MQTT: Handshake failed, library error: ");
-        Serial.println(static_cast<int>(mqttClient.getLastError()));
-        Serial.println("MQTT: Retry in 10 seconds");
+        Debug.print("MQTT: Handshake failed, library error: ");
+        Debug.println(static_cast<int>(mqttClient.getLastError()));
+        Debug.println("MQTT: Retry in 10 seconds");
         ethClient.stop();
         lastConnectAttempt_ms = millis();
         return;
@@ -146,13 +147,13 @@ void mqtt_connect()
     bool restartSubscribed = mqttClient.subscribe(MQTT_TOPICSYSTEM_RESTART, &onTopicSystemRestartReceived);
     lastConnectAttempt_ms = millis();
     if (!controlSubscribed || !restartSubscribed) {
-        Serial.print("MQTT: Subscription failed, library error: ");
-        Serial.println(static_cast<int>(mqttClient.getLastError()));
-        Serial.println("MQTT: Retry in 10 seconds");
+        Debug.print("MQTT: Subscription failed, library error: ");
+        Debug.println(static_cast<int>(mqttClient.getLastError()));
+        Debug.println("MQTT: Retry in 10 seconds");
         ethClient.stop();
         return;
     }
-    Serial.println("MQTT: Connected");
+    Debug.println("MQTT: Connected");
     mqttFirstRun = true;
 
     doorStatePublished = false;
@@ -171,12 +172,12 @@ void onTopicControlSetNewDoorStateReceived(const String &payload, const size_t s
     if (!(payload == MQTT_COMMANDDOOROPEN || payload == MQTT_COMMANDDOORCLOSE))
     {
         mqtt_format_received(buffer, sizeof(buffer), MQTT_TOPICCONTROLSETNEWDOORSTATE, payload.c_str(), false);
-        Serial.println(buffer);
+        Debug.println(buffer);
     }
     else
     {
         mqtt_format_received(buffer, sizeof(buffer), MQTT_TOPICCONTROLSETNEWDOORSTATE, payload.c_str(), true);
-        Serial.println(buffer);
+        Debug.println(buffer);
         command = payload;
       }
 }
@@ -193,12 +194,12 @@ void onTopicSystemRestartReceived(const String &payload, const size_t size)
     if (payload != MQTT_SYSTEMRESTART)
     {
         mqtt_format_received(buffer, sizeof(buffer), MQTT_TOPICSYSTEM_RESTART, payload.c_str(), false);
-        Serial.println(buffer);
+        Debug.println(buffer);
     }
     else
     {
         mqtt_format_received(buffer, sizeof(buffer), MQTT_TOPICSYSTEM_RESTART, payload.c_str(), true);
-        Serial.println(buffer);
+        Debug.println(buffer);
         restartRequest.request(); // Do not publish recursively inside the callback.
       }
 }
@@ -210,7 +211,7 @@ void onTopicSystemRestartReceived(const String &payload, const size_t size)
 bool mqtt_publish(String topic, String payload, bool retain)
 {
     if (!mqtt_send(topic, payload, retain)) return false;
-    Serial.println("RUN: Publish sent (QoS0): set " + topic + " to " + payload);
+    Debug.println("RUN: Publish sent (QoS0): set " + topic + " to " + payload);
     return true;
 }
 
@@ -244,7 +245,7 @@ void mqtt_loop()
                 return mqtt_send(topic, payload, retain, qos);
             })) {
             command = "";
-            Serial.println("MQTT: Retained restart command cleared (PUBACK); watchdog restart armed");
+            Debug.println("MQTT: Retained restart command cleared (PUBACK); watchdog restart armed");
             return;
         }
         mqtt_publish_door_state();
@@ -262,7 +263,7 @@ void mqtt_loop()
             jsonDoc["version"] = version;
             jsonDoc["author"] = author;
             if (!format_ipv4(ipBuffer, sizeof(ipBuffer), ip[0], ip[1], ip[2], ip[3])) {
-                Serial.println("MQTT: Could not format DHCP address for system info");
+                Debug.println("MQTT: Could not format DHCP address for system info");
                 return;
             }
             jsonDoc["ip"] = ipBuffer;
@@ -271,7 +272,7 @@ void mqtt_loop()
             // attention: size of buffer is limited to 256 bytes
             const size_t bytes = serializeJson(jsonDoc, jsonBuffer, sizeof(jsonBuffer));
             if (jsonDoc.overflowed() || bytes >= sizeof(jsonBuffer)) {
-                Serial.println("MQTT: System info JSON did not fit its fixed buffer");
+                Debug.println("MQTT: System info JSON did not fit its fixed buffer");
                 return;
             }
             if (mqtt_send(MQTT_TOPICSYSTEMINFO, jsonBuffer, true)) mqttFirstRun = false;

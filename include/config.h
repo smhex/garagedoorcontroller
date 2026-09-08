@@ -26,6 +26,7 @@
 // variables for global settings shared between the cpp modules
 extern String application;
 extern String version;
+extern const char firmwareVersionMarker[];
 extern String author;
 
 // variables for network settings
