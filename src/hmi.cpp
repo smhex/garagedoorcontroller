@@ -14,6 +14,15 @@
 // button states
 int buttonPressed = 0;
 int debounce_button_ms = 100;
+static bool infoPressed = false;
+static bool infoLongPress = false;
+static bool infoLongReported = false;
+static uint32_t infoPressedAt = 0;
+bool hmi_take_info_long_press() {
+    const bool pressed = infoLongPress;
+    infoLongPress = false;
+    return pressed;
+}
 
 bool doorOpenLedBlink = false;
 bool doorClosedLedBlink = false;
@@ -93,13 +102,22 @@ void hmi_loop()
             buttonPressed = HMI_BUTTON_CLOSEDOOR;
         }
 
-        if (mcp.digitalRead(HMI_BUTTON_SYSTEMINFO) == BUTTONSTATUS_PRESSED)
+        const bool previousInfoPressed = infoPressed;
+        infoPressed = mcp.digitalRead(HMI_BUTTON_SYSTEMINFO) == BUTTONSTATUS_PRESSED;
+        if (infoPressed)
         {
-            buttonPressed = HMI_BUTTON_SYSTEMINFO;
+            if (!previousInfoPressed) {
+                infoPressedAt = millis();
+                infoLongReported = false;
+            } else if (!infoLongReported && millis() - infoPressedAt >= 2000) {
+                infoLongPress = true;
+                infoLongReported = true;
+            }
             hmi_setled(HMI_LED_SYSTEMINFO, HIGH);
         }
         else
         {
+            if (previousInfoPressed && !infoLongReported) buttonPressed = HMI_BUTTON_SYSTEMINFO;
             hmi_setled(HMI_LED_SYSTEMINFO, LOW);
         }
     }

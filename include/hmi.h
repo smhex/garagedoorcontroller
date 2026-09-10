@@ -12,6 +12,8 @@
 
 #define HMI_BEEPER               7
 
+bool hmi_take_info_long_press();
+
 /* exports */
 void hmi_init();
 void hmi_loop();

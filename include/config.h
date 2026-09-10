@@ -4,8 +4,9 @@
 #include <Arduino.h>
 #include <Ethernet.h>
 
-// define the input and output pins to control the drive
-// those pin numbers must match the circuit/schematic
+// Arduino pins connected by the opto-isolated interface circuit to the
+// Marantec drive. D0 activates "Tor auf" and D2 activates "Tor zu"; D1/D3
+// only read the corresponding status signals.
 #define CMD_OPENDOOR_OUTPUT       0
 #define STATUS_DOORISOPEN_INPUT   1
 #define CMD_CLOSEDOOR_OUTPUT      2
@@ -19,12 +20,14 @@
 #define PAGE_HMI        3
 #define PAGE_MQTT       4
 #define PAGE_SYSTEM     5
+#define PAGE_UPDATE     6
 
 /* To change the content of the following variables go to config.cpp */
 
 // variables for global settings shared between the cpp modules
 extern String application;
 extern String version;
+extern const char firmwareVersionMarker[];
 extern String author;
 
 // variables for network settings

@@ -8,3 +8,7 @@
 #define GDC_MQTT_CLIENT_ID "garage-door-controller"
 #define GDC_MQTT_USERNAME "your-mqtt-user"
 #define GDC_MQTT_PASSWORD "change-this-password"
+
+// Optional LAN firmware upload (TCP 65280). Use 32-64 hexadecimal characters.
+// Empty/missing disables uploads. Never expose the upload port to the Internet.
+// #define GDC_UPLOAD_TOKEN "replace-with-a-random-token"

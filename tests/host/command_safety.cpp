@@ -9,7 +9,6 @@
 #include "mqtt_log.h"
 #include "door_state.h"
 #include "button_edge.h"
-#include "input_capture.h"
 #include "input_state_filter.h"
 #include "mqtt_delivery.h"
 #include "time_math.h"
@@ -53,43 +52,25 @@ static void test_mqtt_delivery() {
         assert(payload[0] == '\0' && retained && qos == 1);
         return accepted;
     };
-    assert(!restart.service(0, true, send) && calls == 0);
+    assert(!restart.service(0, true, "gdc/system/restart", send) && calls == 0);
     restart.request();
-    assert(!restart.service(0, false, send) && calls == 0);
+    assert(!restart.service(0, false, "gdc/system/restart", send) && calls == 0);
     const uint32_t start = UINT32_MAX - 1000;
-    assert(!restart.service(start, true, send));
+    assert(!restart.service(start, true, "gdc/system/restart", send));
     assert(calls == 1 && !restart.requested());
     restart.request(); // Duplicate delivery must not reset retry timing.
-    assert(!restart.service(uint32_t(start + 9999), true, send) && calls == 1);
+    assert(!restart.service(uint32_t(start + 9999), true, "gdc/system/restart", send) && calls == 1);
     accepted = true;
-    assert(!restart.service(uint32_t(start + 10000), false, send) && calls == 1);
-    assert(restart.service(uint32_t(start + 10000), true, send));
+    assert(!restart.service(uint32_t(start + 10000), false, "gdc/system/restart", send) && calls == 1);
+    assert(restart.service(uint32_t(start + 10000), true, "gdc/system/restart", send));
     assert(restart.requested() && calls == 2);
     restart.request();
-    assert(!restart.service(50000, true, send) && calls == 2);
+    assert(!restart.service(50000, true, "gdc/system/restart", send) && calls == 2);
     uint32_t count = 0;
     assert(!mqtt_counted_send(count, []() { return false; }) && count == 0);
     assert(mqtt_counted_send(count, []() { return true; }) && count == 1);
     count = UINT32_MAX;
     assert(mqtt_counted_send(count, []() { return true; }) && count == 0);
-}
-
-static void test_input_capture() {
-    InputCapture<3> capture;
-    capture.reset(UINT32_MAX - 10);
-    capture.record(UINT32_MAX - 10, 1);
-    capture.record(UINT32_MAX - 5, 1);
-    capture.record(4, 0);
-    capture.record(9, 3);
-    capture.record(14, 2);
-    capture.record(19, 2);
-    assert(capture.count == 3 && capture.dropped == 1 && capture.reads == 6);
-    assert(capture.samples[0].us == 0 && capture.samples[0].levels == 1);
-    assert(capture.samples[1].us == 15 && capture.samples[1].levels == 0);
-    assert(capture.samples[2].levels == 3 && capture.maxGapUs == 10);
-    capture.reset(100);
-    capture.record(100, 2);
-    assert(capture.count == 1 && capture.dropped == 0 && capture.reads == 1);
 }
 
 static void test_input_state_filter() {
@@ -120,7 +101,7 @@ static void test_input_state_filter() {
     assert(filter.update(DOORSTATUSOPEN, 14) == DOORSTATUSOPEN);
 }
 
-static void test_repeated_commands_preserve_motion() {
+static void test_repeated_commands_stop_motion() {
     for (int startDirection : {DOORCOMMANDOPEN, DOORCOMMANDCLOSE}) {
         for (int stopDirection : {DOORCOMMANDOPEN, DOORCOMMANDCLOSE}) {
             for (int resumeDirection : {DOORCOMMANDOPEN, DOORCOMMANDCLOSE}) {
@@ -139,16 +120,18 @@ static void test_repeated_commands_preserve_motion() {
                 assert(tracker.state == moving);
                 tracker.observe(DOORSTATUSMOVINGORSTOPPED);
                 assert(tracker.state == moving);
-                assert(tracker.command(stopDirection));
-                assert(tracker.state == moving);
+                // Either new direction is an implicit stop and must reuse the
+                // output that initiated the current movement.
+                assert(tracker.stop() == startDirection);
+                assert(tracker.state == DoorState::Stopped);
                 assert(tracker.target == startDirection);
                 tracker.observe(stopDirection == DOORCOMMANDOPEN ? DOORSTATUSOPEN : DOORSTATUSCLOSED, true);
-                assert(tracker.state == moving);
+                assert(tracker.state == DoorState::Stopped);
                 tracker.observe(DOORSTATUSMOVINGORSTOPPED);
-                assert(tracker.state == moving);
+                assert(tracker.state == DoorState::Stopped);
                 assert(tracker.command(resumeDirection));
-                assert(tracker.state == moving);
-                assert(tracker.target == startDirection);
+                assert(tracker.state == (resumeDirection == DOORCOMMANDOPEN ? DoorState::Opening : DoorState::Closing));
+                assert(tracker.target == resumeDirection);
                 tracker.observe(resumeDirection == DOORCOMMANDOPEN ? DOORSTATUSOPEN : DOORSTATUSCLOSED);
                 assert(tracker.state == (resumeDirection == DOORCOMMANDOPEN ? DoorState::Open : DoorState::Closed));
                 assert(!tracker.command(resumeDirection));
@@ -279,9 +262,8 @@ int main() {
     test_pulse(DOORCOMMANDOPEN, DOORCOMMANDCLOSE, CMD_OPENDOOR_OUTPUT, CMD_CLOSEDOOR_OUTPUT);
     test_pulse(DOORCOMMANDCLOSE, DOORCOMMANDOPEN, CMD_CLOSEDOOR_OUTPUT, CMD_OPENDOOR_OUTPUT);
     test_logging();
-    test_repeated_commands_preserve_motion();
+    test_repeated_commands_stop_motion();
     test_pulse_timing();
-    test_input_capture();
     test_input_state_filter();
     test_mqtt_delivery();
     test_time_math();
@@ -289,9 +271,8 @@ int main() {
     puts("PASS: IPv4 system-info formatting and bounded output");
     puts("PASS: elapsed timers at boundaries and across 32-bit counter wrap");
     puts("PASS: retained restart deletion, ACK gating, failure retry/wrap, duplicate requests and send counts");
-    puts("PASS: input capture, unchanged levels, overflow, timer wrap and reset");
     puts("PASS: stable drive input filtering, short transient rejection and timer wrap");
     puts("PASS: delayed pulse start, exact duration, timer wrap, one-shot duration reports");
-    puts("PASS: no inferred stop/reversal from repeated commands, end switches, unknown state, held buttons");
+    puts("PASS: implicit stop from repeated commands, end switches, unknown state, held buttons");
     puts("PASS: command interlock, duplicate pulses, invalid commands, bounded MQTT logging");
 }

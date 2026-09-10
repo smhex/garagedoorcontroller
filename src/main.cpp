@@ -1,3 +1,5 @@
+#include "debug_console.h"
+#include "lan_update.h"
 // Include libraries
 #include <Arduino.h>
 
@@ -15,7 +17,6 @@
 #include "mqtt.h"
 #include "sensors.h"
 #include "network.h"
-#include "input_capture.h"
 #include "time_math.h"
 
 EthernetClient ethClient;
@@ -46,6 +47,7 @@ void watchdog_onShutdown();
 void publish_sensor_values();
 void command_open(String fromSource);
 void command_close(String fromSource);
+void command_door(int direction, String fromSource);
 void show_door_state();
 void show_systeminfo();
 void show_page_sensors();
@@ -54,54 +56,7 @@ void show_page_driveio();
 void show_page_hmi();
 void show_page_mqtt();
 void show_page_system();
-
-// Type d in the USB serial monitor to capture input levels for 30 seconds.
-bool input_diagnostic_loop()
-{
-  static InputCapture<256> capture;
-  static bool active = false;
-  static unsigned long startedMs = 0;
-  static unsigned long watchdogMs = 0;
-  if (!active) {
-    if (driveio_doorcommandactive() || mqtt_isrestartrequested()) return false;
-    if (!Serial.available() || Serial.read() != 'd') return false;
-    // Prevent commands arriving on the old MQTT session during the pause.
-    ethClient.stop();
-    Serial.println("DIAG: START 30 seconds; use original remote only. Inputs D1/D3; Arduino commands paused.");
-    Serial.flush();
-    startedMs = watchdogMs = millis();
-    watchdog.clear();
-    capture.reset(micros());
-    active = true;
-  }
-  const uint8_t levels = (digitalRead(STATUS_DOORISOPEN_INPUT) ? 1 : 0) |
-                         (digitalRead(STATUS_DOORISCLOSED_INPUT) ? 2 : 0);
-  capture.record(micros(), levels);
-  if (millis() - watchdogMs >= 100) {
-    watchdog.clear();
-    watchdogMs = millis();
-  }
-  if (millis() - startedMs < 30000) return true;
-
-  Serial.println("DIAG: END; buffered transitions follow (time from capture start)");
-  for (size_t i = 0; i < capture.count; ++i) {
-    char line[80];
-    snprintf(line, sizeof(line), "DIAG: t=%lu us D1=%u D3=%u",
-             static_cast<unsigned long>(capture.samples[i].us),
-             static_cast<unsigned>(capture.samples[i].levels & 1),
-             static_cast<unsigned>((capture.samples[i].levels >> 1) & 1));
-    Serial.println(line);
-    watchdog.clear();
-  }
-  Serial.print("DIAG: reads="); Serial.print(capture.reads);
-  Serial.print(" max_gap_us="); Serial.print(capture.maxGapUs);
-  Serial.print(" dropped_transitions="); Serial.println(capture.dropped);
-  // External activity invalidates motion inferred before the capture.
-  doorState = DoorStateTracker();
-  active = false;
-  Serial.println("DIAG: normal operation resumes; MQTT reconnects");
-  return true;
-}
+void show_page_update();
 
 // Buffer input transitions during pulses; Serial output only runs after release.
 void trace_drive_inputs(bool pulseActiveAtSample)
@@ -122,11 +77,11 @@ void trace_drive_inputs(bool pulseActiveAtSample)
     char line[100];
     snprintf(line, sizeof(line), "IO: t=%lu ms raw=%d pulse=%d (0=external,1=open,2=closed,3=between)",
              samples[i].time, samples[i].state, samples[i].active ? 1 : 0);
-    Serial.println(line);
+    Debug.println(line);
   }
   if (dropped) {
-    Serial.print("IO: dropped transitions: ");
-    Serial.println(dropped);
+    Debug.print("IO: dropped transitions: ");
+    Debug.println(dropped);
   }
   count = dropped = 0;
 }
@@ -154,8 +109,10 @@ void setup()
   show_page_overview();
 
   // This should be the first line in the serial log
-  Serial.println("INIT: Starting...");
-  Serial.println("INIT: Sketch built on " __DATE__ " at " __TIME__);
+  Debug.println("INIT: Starting...");
+  Debug.print("INIT: Firmware version: ");
+  Debug.println(version);
+  Debug.println("INIT: Sketch built on " __DATE__ " at " __TIME__);
 
   // check if all the hardware is installed/present
   // start with MKR ENV shield
@@ -168,6 +125,7 @@ void setup()
   network_init();
   watchdog_reset();
   mqtt_init();
+  lan_update_init();
 
 }
 
@@ -176,12 +134,14 @@ void loop()
 {
   // calculate uptime in seconds
   uptime_in_secs = (millis() - millisWhenStarted_ms) / 1000;
-  if (input_diagnostic_loop()) return;
-
   // loop over all modules
   // driveio_loop samples inputs before releasing an expired command output.
   const bool pulseActiveAtSample = driveio_doorcommandactive();
   driveio_loop();
+  int startedPin;
+  unsigned long startedAt;
+  if (driveio_takepulsestartreport(&startedPin, &startedAt))
+    doorState.travelStarted(startedPin == CMD_OPENDOOR_OUTPUT ? DOORCOMMANDOPEN : DOORCOMMANDCLOSE, startedAt);
   trace_drive_inputs(pulseActiveAtSample);
   if (driveio_doorcommandactive()) {
     if (!mqtt_isrestartrequested()) watchdog.clear();
@@ -190,15 +150,32 @@ void loop()
   int completedPin;
   unsigned long pulseDuration;
   if (driveio_takepulsereport(&completedPin, &pulseDuration)) {
-    Serial.print("IO: pulse complete Arduino D");
-    Serial.print(completedPin);
-    Serial.print(" HIGH duration=");
-    Serial.print(pulseDuration);
-    Serial.println(" ms (software timing)");
+    Debug.print("IO: pulse complete Arduino D");
+    Debug.print(completedPin);
+    Debug.print(" HIGH duration=");
+    Debug.print(pulseDuration);
+    Debug.println(" ms (software timing)");
   }
   doorState.observe(driveio_getcurrentdoorstatus(), pulseActiveAtSample);
   show_door_state();
   hmi_loop();
+  const bool updateWasBusy = lan_update_busy();
+  lan_update_loop();
+  if (updateWasBusy || lan_update_busy()) {
+    static unsigned long lastUpdateFrame = 0;
+    currentSystemInfoPage = PAGE_UPDATE;
+    displayIsOn = true;
+    prev_displayTimeout_ms = millis();
+    if (!updateWasBusy) hmi_display_off(true);
+    if (!updateWasBusy || !lan_update_busy() || millis() - lastUpdateFrame >= 250) {
+      show_page_update();
+      lastUpdateFrame = millis();
+    }
+    watchdog_reset();
+    mqtt_loop();
+    debug_console_loop();
+    return;
+  }
   sensors_loop();
   if (!driveio_doorcommandactive() && !mqtt_isrestartrequested())
   {
@@ -206,6 +183,7 @@ void loop()
     network_loop();
     watchdog_reset();
     mqtt_loop();
+    debug_console_loop();
   }
 
   // gets the current sensor values and sends them via mqtt
@@ -221,10 +199,17 @@ void loop()
   int oldInput = 0;
   int newInput = 0;
   if (driveio_doorstatuschanged(&oldInput, &newInput) && newInput == DOORSTATUSEXTERNAL)
-    mqtt_publish(MQTT_TOPICCONTROLCOMMANDSOURCE, MQTT_COMMANDSOURCEEXTERNAL, false);
+    mqtt_note_door_command(MQTT_COMMANDSOURCEEXTERNAL);
 
   // check for user command (button press on HMI)
   int buttonPressed = hmi_getbuttonpressed();
+  if (hmi_take_info_long_press() && currentSystemInfoPage == PAGE_UPDATE && lan_update_available())
+  {
+    lan_update_request_install(MQTT_COMMANDSOURCELOCAL);
+    displayIsOn = true;
+    prev_displayTimeout_ms = millis();
+    hmi_display_off(true);
+  }
   if (buttonPressed != HMI_BUTTON_NONE)
   {
     lastCommand = buttonPressed;
@@ -242,7 +227,8 @@ void loop()
       // only activate the display again
       if (displayIsOn)
       {
-        if (currentSystemInfoPage == PAGE_SYSTEM)
+        if (currentSystemInfoPage == PAGE_UPDATE ||
+            (currentSystemInfoPage == PAGE_SYSTEM && !lan_update_available()))
         {
           // start over with first page agin
           currentSystemInfoPage = PAGE_OVERVIEW;
@@ -250,12 +236,12 @@ void loop()
         else
         {
           //switch to next page
-          currentSystemInfoPage++;
+          ++currentSystemInfoPage;
         }
       }
       char buffer[80];
       sprintf(buffer, "RUN: SYSINFO: %d", currentSystemInfoPage);
-      Serial.println(buffer);
+      Debug.println(buffer);
       displayIsOn = true;
       prev_displayTimeout_ms = millis();
       hmi_display_off(displayIsOn);
@@ -274,6 +260,10 @@ void loop()
     {
       command_close(MQTT_COMMANDSOURCEREMOTE);
     }
+    if (remoteCommand == MQTT_COMMANDDOORSTOP && doorState.isMoving())
+    {
+      command_door(doorState.target, MQTT_COMMANDSOURCEREMOTE);
+    }
   }
 
   if (driveio_doorcommandactive()) return;
@@ -291,27 +281,39 @@ void loop()
 }
 
 /*
- * Issue a direction pulse without assuming that a repeated command stops motion.
+ * A second command during travel is an implicit stop. The drive accepts either
+ * command input for this, but pulse the output that started the current travel.
  */
 void command_door(int direction, String fromSource)
 {
+  if (lan_update_busy()) return;
+  lan_update_note_door_command(fromSource);
   if (mqtt_isrestartrequested()) {
-    Serial.println("RUN: Command ignored: restart armed");
+    Debug.println("RUN: Command ignored: restart armed");
     return;
   }
   if (driveio_doorcommandactive()) {
-    Serial.println("RUN: Command ignored: drive pulse active");
+    Debug.println("RUN: Command ignored: drive pulse active");
     return;
   }
-  if (!doorState.command(direction)) {
-    Serial.println("RUN: Command ignored: target end position already reached");
+  bool implicitStop = doorState.isMoving();
+  int pulseDirection = direction;
+  if (implicitStop) {
+    pulseDirection = doorState.stop();
+    Debug.print("RUN: Command: DOORSTOP (source=");
+    Debug.print(fromSource);
+    Debug.println(")");
+  } else if (!doorState.command(direction)) {
+    Debug.println("RUN: Command ignored: target end position already reached");
     return;
   }
-  Serial.print("RUN: Command: ");
-  Serial.print(direction == DOORCOMMANDOPEN ? "DOOROPEN" : "DOORCLOSE");
-  Serial.println(" (source=" + fromSource + ")");
-  mqtt_publish(MQTT_TOPICCONTROLCOMMANDSOURCE, fromSource, false);
-  driveio_setdoorcommand(direction);
+  if (!implicitStop) {
+    Debug.print("RUN: Command: ");
+    Debug.print(direction == DOORCOMMANDOPEN ? "DOOROPEN" : "DOORCLOSE");
+    Debug.println(" (source=" + fromSource + ")");
+  }
+  mqtt_note_door_command(fromSource);
+  driveio_setdoorcommand(pulseDirection);
 }
 
 void command_open(String fromSource)
@@ -365,6 +367,9 @@ void show_systeminfo()
   case PAGE_SYSTEM:
     show_page_system();
     break;
+  case PAGE_UPDATE:
+    show_page_update();
+    break;
   }
 }
 
@@ -373,38 +378,7 @@ void show_systeminfo()
  */
 void publish_sensor_values()
 {
-  if (timespan_ten_seconds() | mainFirstRun)
-  {
-    const bool valid = sensors_isvalid();
-    mqtt_publish("gdc/system/sensors/status", valid ? "available" : "unavailable", true);
-    if (!valid) return;
-    // json document
-    // Schema is fixed and bounded; avoid heap allocation on a long-running controller.
-    StaticJsonDocument<256> jsonSensorValuesDoc;
-    char jsonSensorValuesBuffer[256];
-
-    JsonObject sensorTemperature = jsonSensorValuesDoc.createNestedObject("temperature");
-    sensorTemperature["value"] = toString(sensors_get_temperature(), 1);
-    sensorTemperature["unit"] = "°C";
-
-    JsonObject sensorHumidity = jsonSensorValuesDoc.createNestedObject("humidity");
-    sensorHumidity["value"] = toString(sensors_get_humidity());
-    sensorHumidity["unit"] = "%";
-
-    JsonObject sensorPressure = jsonSensorValuesDoc.createNestedObject("pressure");
-    sensorPressure["value"] = toString(sensors_get_pressure());
-    sensorPressure["unit"] = "kPa";
-
-    JsonObject sensorIlluminance = jsonSensorValuesDoc.createNestedObject("illuminance");
-    sensorIlluminance["value"] = toString(sensors_get_illuminance(),4);
-    sensorIlluminance["unit"] = "lx";
-
-    // prepare json payload for sensors topic
-    // serialize json document into global buffer and publish
-    // attention: size of buffer is limited to 256 bytes
-    serializeJson(jsonSensorValuesDoc, jsonSensorValuesBuffer);
-    mqtt_publish("gdc/system/sensors", jsonSensorValuesBuffer, false);
-  }
+  // Included in the retained per-controller MQTT state by mqtt_loop().
 }
 
 /*
@@ -442,7 +416,7 @@ void watchdog_reset()
  */
 void watchdog_onShutdown()
 {
-  Serial.print("\nERROR: watchdog not cleared. Controller reboot initiated");
+  Debug.print("\nERROR: watchdog not cleared. Controller reboot initiated");
 }
 
 /*
@@ -453,13 +427,24 @@ void show_page_overview()
   String ethStatus = (ethClient.connected()==true) ? "connected" : "disconnected";
   String mqttStatus = (mqtt_isconnected()==true) ? "connected" : "disconnected";
   String text[4] = {
-    "Version " + version, 
+    "Version " + version + (lan_update_available() ? " [*]" : ""),
     "Copyright " + author, 
     "Ethernet " + ethStatus,
     "MQTT " + mqttStatus
   };
   int len = sizeof(text) / sizeof(text[0]);
   hmi_display_frame(application, text, len);
+}
+
+void show_page_update()
+{
+  String lines[4];
+  if (!lan_update_display(lines)) {
+    lines[0] = "No update staged";
+    hmi_display_frame("Firmware Update", lines, 1);
+    return;
+  }
+  hmi_display_frame("Firmware Update", lines, 4);
 }
 
 /*

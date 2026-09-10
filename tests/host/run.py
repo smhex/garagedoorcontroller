@@ -30,3 +30,10 @@ with tempfile.TemporaryDirectory(prefix="gdc-tests-") as build:
         str(root / "lib/Arduino_MKRENV/src/MKRENV.cpp"), "-o", str(sensor_executable),
     ], check=True)
     subprocess.run([str(sensor_executable)], check=True)
+    lan_executable = Path(build) / "lan_helpers.exe"
+    subprocess.run([
+        args.cxx, "-std=c++11", "-Wall", "-Wextra", "-Werror",
+        "-I" + str(root / "include"), str(root / "tests/host/lan_helpers.cpp"),
+        "-o", str(lan_executable),
+    ], check=True)
+    subprocess.run([str(lan_executable)], check=True)
