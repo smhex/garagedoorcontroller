@@ -1,22 +1,4 @@
-# Drive timing, end position and input diagnostics
-
-## Original remote input capture
-
-Upload this branch, open the USB serial monitor and send lowercase `c`.
-Wait for `DIAG: START`, then use only the original remote for a start, stop,
-reverse, stop sequence within 30 seconds. Note the approximate press times and
-actual movement. There is intentionally no serial output during capture.
-
-Arduino buttons, sensor reads, display updates and MQTT/network maintenance are
-paused. The existing TCP session is closed before capture; the broker may report
-the controller offline. The watchdog remains serviced. At `DIAG: END`, up to 256
-input transitions are printed with relative microsecond timestamps and actual
-D1/D3 HIGH/LOW levels. `max_gap_us` reports the largest sampling interval;
-`dropped_transitions` reports buffer overflow. This is polling, not an oscilloscope.
-Normal processing resumes automatically, and MQTT reconnects. Motion assumptions
-are reset because activity through the remote was not tracked. End the test at
-a known end position before testing normal Arduino commands again. Send `c` again
-for another capture if necessary. Copy the complete START-to-resume log.
+# Drive timing and end-position checks
 
 During inferred motion, a second local or MQTT direction command is an implicit
 stop: it pulses the output that started the current movement, regardless of the

@@ -1,332 +1,127 @@
 #include "debug_console.h"
-// Include libraries
 #include <Arduino.h>
-#include <MQTTPubSubClient.h>
-#include <Ethernet.h>
 #include <ArduinoJson.h>
-
-#include "config.h"
-#include "mqtt.h"
-#include "mqtt_log.h"
-#include "mqtt_delivery.h"
-#include "network_info.h"
-#include "network.h"
-#include "driveio.h"
-#include "door_state.h"
 #include <Dns.h>
+#include <Ethernet.h>
+#include <MQTTPubSubClient.h>
+#include "config.h"
+#include "door_state.h"
+#include "driveio.h"
+#include "lan_update.h"
+#include "mqtt.h"
+#include "mqtt_delivery.h"
+#include "network.h"
+#include "sensors.h"
 
-// MQTT broker/topic configuration
-// 256 bytes need to publish the sensors topic
-MQTTPubSub::PubSubClient<256> mqttClient;
+MQTTPubSub::PubSubClient<1536> mqttClient;
+namespace {
+String command, source = "unknown";
+uint32_t received = 0, sent = 0, lastState = 0;
+bool initialized = false, attempted = false, discovery = true, dirty = true, bootPending = true;
+uint32_t lastAttempt = 0;
+MqttRestart restart;
+DoorState previousState = DoorState::Unknown;
+int previousTarget = 0;
 
-String command ="";
-
-uint32_t numPacketsReceived = 0;
-uint32_t numPacketsSent = 0;
-
-bool mqttFirstRun = true;
-bool mqttInitialized = false;
-unsigned long lastConnectAttempt_ms = 0;
-bool connectAttempted = false;
-MqttRestart restartRequest;
-bool doorStatePublished = false;
-DoorState publishedDoorState = DoorState::Unknown;
-int publishedDoorTarget = 0;
-
-bool mqtt_send(const String& topic, const String& payload, bool retain, int qos = 0)
-{
-    if (!mqtt_isconnected() || !network_isready() || driveio_doorcommandactive() || restartRequest.requested()) return false;
-    if (mqtt_counted_send(numPacketsSent, [&]() {
-        return mqttClient.publish(topic, payload, retain, qos);
-    })) return true;
-    Debug.print("MQTT: Publish failed: ");
-    Debug.print(topic);
-    Debug.print("; library error: ");
-    Debug.println(static_cast<int>(mqttClient.getLastError()));
-    return false;
+String id() { static String v; if (!v.length()) { char b[18]; snprintf(b,sizeof(b),"gdc-%02x%02x%02x%02x%02x%02x",mac[0],mac[1],mac[2],mac[3],mac[4],mac[5]); v=b; } return v; }
+String root() { return String("gdc/")+id(); }
+String top(const char* suffix) { return root()+"/"+suffix; }
+String macString() { char b[18]; snprintf(b,sizeof(b),"%02x:%02x:%02x:%02x:%02x:%02x",mac[0],mac[1],mac[2],mac[3],mac[4],mac[5]); return String(b); }
+const char* stateName(DoorState s) { switch(s) { case DoorState::Open:return "open"; case DoorState::Closed:return "closed"; case DoorState::Opening:return "opening"; case DoorState::Closing:return "closing"; case DoorState::Stopped:return "stopped"; default:return "unknown"; } }
+const char* doorStatusName(DoorState s) { switch(s) { case DoorState::Open:return "open"; case DoorState::Closed:return "closed"; case DoorState::Opening: case DoorState::Closing:return "moving"; case DoorState::Stopped:return "stopped"; default:return "unknown"; } }
+bool send(const String& t,const String& p,bool retain,int qos=0) { if(!mqtt_isconnected()||!network_isready()||driveio_doorcommandactive()||restart.requested()) return false; if(mqttClient.publish(t,p,retain,qos)){++sent;return true;} Debug.println("MQTT: publish failed");return false; }
+String dev() { const String hardwareId=id(); return String("\"device\":{\"identifiers\":[\"")+hardwareId+"\"],\"name\":\"Garage Door Controller "+macString().substring(9)+"\",\"manufacturer\":\"smhex\",\"model\":\"Garage Door Controller\",\"model_id\":\"GDC-MKRZERO\",\"serial_number\":\""+hardwareId+"\",\"hw_version\":\"Arduino MKR Zero\",\"sw_version\":\""+version+"\"}"; }
+bool discover(const char* component,const char* object,const String& config) { String uid=id()+"_"+object; String p=String("{\"~\":\"")+root()+"\",\"unique_id\":\""+uid+"\","+config+",\"availability_topic\":\"~/availability\",\"payload_available\":\"online\",\"payload_not_available\":\"offline\","+dev()+",\"origin\":{\"name\":\"Garage Door Controller\",\"sw_version\":\""+version+"\"}}"; return send(String("homeassistant/")+component+"/"+uid+"/config",p,true); }
+bool publishDiscovery() { return
+  discover("cover","door","\"name\":null,\"device_class\":\"garage\",\"command_topic\":\"~/command/door\",\"state_topic\":\"~/state\",\"value_template\":\"{{ value_json.door.state }}\",\"payload_open\":\"open\",\"payload_close\":\"close\",\"payload_stop\":\"stop\",\"state_open\":\"open\",\"state_closed\":\"closed\",\"state_opening\":\"opening\",\"state_closing\":\"closing\",\"state_stopped\":\"stopped\"") &&
+  discover("sensor","door_status","\"name\":\"Door status\",\"state_topic\":\"~/state\",\"value_template\":\"{{ value_json.door.status }}\",\"device_class\":\"enum\",\"options\":[\"open\",\"closed\",\"moving\",\"stopped\",\"unknown\"]") &&
+  discover("update","firmware","\"name\":\"Firmware\",\"device_class\":\"firmware\",\"command_topic\":\"~/command/update\",\"payload_install\":\"install\",\"state_topic\":\"~/update/state\",\"entity_category\":\"config\"") &&
+  discover("button","restart","\"name\":\"Restart\",\"device_class\":\"restart\",\"command_topic\":\"~/command/restart\",\"payload_press\":\"restart\",\"entity_category\":\"config\"") &&
+  discover("sensor","temperature","\"name\":\"Temperature\",\"state_topic\":\"~/state\",\"value_template\":\"{{ value_json.sensors.temperature_c }}\",\"device_class\":\"temperature\",\"unit_of_measurement\":\"°C\",\"state_class\":\"measurement\",\"suggested_display_precision\":1,\"entity_category\":\"diagnostic\"") &&
+  discover("sensor","humidity","\"name\":\"Humidity\",\"state_topic\":\"~/state\",\"value_template\":\"{{ value_json.sensors.humidity_pct }}\",\"device_class\":\"humidity\",\"unit_of_measurement\":\"%\",\"state_class\":\"measurement\",\"suggested_display_precision\":0,\"entity_category\":\"diagnostic\"") &&
+  discover("sensor","pressure","\"name\":\"Pressure\",\"state_topic\":\"~/state\",\"value_template\":\"{{ value_json.sensors.pressure_hpa }}\",\"device_class\":\"atmospheric_pressure\",\"unit_of_measurement\":\"hPa\",\"state_class\":\"measurement\",\"suggested_display_precision\":1,\"entity_category\":\"diagnostic\"") &&
+  discover("sensor","illuminance","\"name\":\"Illuminance\",\"state_topic\":\"~/state\",\"value_template\":\"{{ value_json.sensors.illuminance_lx }}\",\"device_class\":\"illuminance\",\"unit_of_measurement\":\"lx\",\"state_class\":\"measurement\",\"suggested_display_precision\":1,\"entity_category\":\"diagnostic\"") &&
+  discover("binary_sensor","env_shield","\"name\":\"ENV shield\",\"state_topic\":\"~/state\",\"value_template\":\"{{ 'ON' if value_json.sensors.available else 'OFF' }}\",\"payload_on\":\"ON\",\"payload_off\":\"OFF\",\"device_class\":\"connectivity\",\"entity_category\":\"diagnostic\"") &&
+  discover("sensor","ip_address","\"name\":\"IP address\",\"state_topic\":\"~/state\",\"value_template\":\"{{ value_json.system.ip }}\",\"icon\":\"mdi:ip-network\",\"entity_category\":\"diagnostic\"") &&
+  discover("sensor","last_boot","\"name\":\"Last boot\",\"state_topic\":\"~/system/boot\",\"value_template\":\"{{ (now() - timedelta(seconds=value_json.uptime_s)).isoformat() }}\",\"device_class\":\"timestamp\",\"entity_category\":\"diagnostic\"") &&
+  discover("sensor","last_command_source","\"name\":\"Last command source\",\"state_topic\":\"~/state\",\"value_template\":\"{{ value_json.door.last_command_source }}\",\"device_class\":\"enum\",\"options\":[\"local\",\"mqtt\",\"external\",\"unknown\"],\"entity_category\":\"diagnostic\"") &&
+  discover("sensor","open_travel_time","\"name\":\"Last opening travel time\",\"state_topic\":\"~/state\",\"value_template\":\"{{ value_json.door.last_open_travel_s }}\",\"device_class\":\"duration\",\"unit_of_measurement\":\"s\",\"suggested_display_precision\":0,\"entity_category\":\"diagnostic\"") &&
+  discover("sensor","close_travel_time","\"name\":\"Last closing travel time\",\"state_topic\":\"~/state\",\"value_template\":\"{{ value_json.door.last_close_travel_s }}\",\"device_class\":\"duration\",\"unit_of_measurement\":\"s\",\"suggested_display_precision\":0,\"entity_category\":\"diagnostic\""); }
+void publishBootState() {
+  StaticJsonDocument<64> json;
+  char payload[64];
+  json["uptime_s"] = uptime_in_secs;
+  const size_t length = serializeJson(json, payload, sizeof(payload));
+  if (!json.overflowed() && length < sizeof(payload) && send(top("system/boot"), payload, true))
+    bootPending = false;
 }
 
-// Retain the latest logical state across suppressed sends and network outages.
-void mqtt_publish_door_state()
-{
-    if (!mqttClient.isConnected() || driveio_doorcommandactive()) return;
-    if (doorStatePublished && publishedDoorState == doorState.state &&
-        publishedDoorTarget == doorState.target) return;
-    const char* state = MQTT_STATUSDOORUNKNOWN;
-    switch (doorState.state) {
-        case DoorState::Open: state = MQTT_STATUSDOOROPEN; break;
-        case DoorState::Closed: state = MQTT_STATUSDOORCLOSED; break;
-        case DoorState::Opening: state = MQTT_STATUSDOOROPENING; break;
-        case DoorState::Closing: state = MQTT_STATUSDOORCLOSING; break;
-        case DoorState::Stopped: state = MQTT_STATUSDOORSTOPPED; break;
-        case DoorState::Unknown: break;
-    }
-    if (!mqtt_send(MQTT_TOPICCONTROLGETCURRENTDOORSTATE, state, true)) return;
-    if (doorState.target != 0) {
-        if (!mqtt_send(MQTT_TOPICCONTROLGETNEWDOORSTATE,
-            doorState.target == DOORCOMMANDOPEN ? MQTT_COMMANDDOOROPEN : MQTT_COMMANDDOORCLOSE,
-            true, 0)) return;
-    }
-    Debug.print("RUN: Door state published: ");
-    Debug.println(state);
-    publishedDoorState = doorState.state;
-    publishedDoorTarget = doorState.target;
-    doorStatePublished = true;
+void publishState() {
+  StaticJsonDocument<1024> json;
+  char payload[1200], ip[16];
+  const bool sensorsAvailable = sensors_isvalid();
+
+  JsonObject door = json.createNestedObject("door");
+  door["state"] = stateName(doorState.state);
+  door["status"] = doorStatusName(doorState.state);
+  door["target"] = doorState.target == DOORCOMMANDOPEN ? "open" :
+                   doorState.target == DOORCOMMANDCLOSE ? "close" : nullptr;
+  door["last_command_source"] = source;
+  door["open_endstop"] = driveio_getiostatus(STATUS_DOORISOPEN_INPUT) != 0;
+  door["closed_endstop"] = driveio_getiostatus(STATUS_DOORISCLOSED_INPUT) != 0;
+  door["open_output"] = driveio_getiostatus(CMD_OPENDOOR_OUTPUT) != 0;
+  door["close_output"] = driveio_getiostatus(CMD_CLOSEDOOR_OUTPUT) != 0;
+  if (doorState.lastOpenTravelMs())
+    door["last_open_travel_s"] = (doorState.lastOpenTravelMs() + 500) / 1000;
+  else
+    door["last_open_travel_s"] = nullptr;
+  if (doorState.lastCloseTravelMs())
+    door["last_close_travel_s"] = (doorState.lastCloseTravelMs() + 500) / 1000;
+  else
+    door["last_close_travel_s"] = nullptr;
+
+  JsonObject sensors = json.createNestedObject("sensors");
+  sensors["available"] = sensorsAvailable;
+  sensors["temperature_c"] = sensorsAvailable ? roundf(sensors_get_temperature() * 10.0f) / 10.0f : NAN;
+  sensors["humidity_pct"] = sensorsAvailable ? roundf(sensors_get_humidity()) : NAN;
+  sensors["pressure_hpa"] = sensorsAvailable ? roundf(sensors_get_pressure() * 100.0f) / 10.0f : NAN;
+  sensors["illuminance_lx"] = sensorsAvailable ? roundf(sensors_get_illuminance() * 10.0f) / 10.0f : NAN;
+
+  JsonObject system = json.createNestedObject("system");
+  system["firmware"] = version;
+  system["uptime_s"] = uptime_in_secs;
+  system["network_link"] = Ethernet.linkStatus() != LinkOFF;
+  system["mqtt_messages_sent"] = sent;
+  system["mqtt_messages_received"] = received;
+  snprintf(ip, sizeof(ip), "%u.%u.%u.%u", Ethernet.localIP()[0], Ethernet.localIP()[1],
+           Ethernet.localIP()[2], Ethernet.localIP()[3]);
+  system["ip"] = ip;
+
+  JsonObject update = json.createNestedObject("update");
+  update["installed_version"] = version;
+  update["latest_version"] = (lan_update_available() || lan_update_installing()) ? lan_update_version() : version;
+  update["in_progress"] = lan_update_installing();
+  if (lan_update_installing())
+    update["update_percentage"] = 100;
+  else
+    update["update_percentage"] = nullptr;
+  update["can_install"] = lan_update_can_install();
+  const char* blockedReason = lan_update_install_block_reason();
+  update["blocked_reason"] = blockedReason ? blockedReason : nullptr;
+  json["schema"] = 1;
+
+  const size_t length = serializeJson(json, payload, sizeof(payload));
+  if (!json.overflowed() && length < sizeof(payload) && send(top("state"), payload, true)) {
+    dirty = false;
+    lastState = millis();
+  }
 }
-
-// handler for subscribed topics (mqtt receive)
-void onTopicControlSetNewDoorStateReceived(const String &payload, const size_t size);
-void onTopicSystemRestartReceived(const String &payload, const size_t size);
-
-/*
-* Configures the client. Connection attempts are performed by mqtt_loop().
-*/
-void mqtt_init()
-{
-    if (mqttInitialized) return;
-
-    // set mqtt client options
-    mqttClient.setKeepAliveTimeout(60);
-    mqttClient.setCleanSession(true);
-
-    // Lastwill topic is equal to system status topic
-    // MQTTPubSubClient 0.1.2 stores the topic's buffer without copying it.
-    // Keep it alive for the later connection attempts and reconnects.
-    static String mqttLastWillTopic = MQTT_TOPICSYSTEMSTATUS;
-    mqttClient.setWill(mqttLastWillTopic, mqttLastWillMsg, true, 0);
-
-    mqttClient.setTimeout(1000);
-    ethClient.setConnectionTimeout(1000);
-    mqttClient.begin(ethClient);
-    mqttInitialized = true;
+void publishUpdateState() { StaticJsonDocument<256> j; char p[256]; j["installed_version"]=version; j["latest_version"]=(lan_update_available()||lan_update_installing())?lan_update_version():version; j["in_progress"]=lan_update_installing(); if(lan_update_installing())j["update_percentage"]=100;else j["update_percentage"]=nullptr; size_t n=serializeJson(j,p,sizeof(p)); if(!j.overflowed()&&n<sizeof(p)) send(top("update/state"),p,true); }
+void doorCallback(const String& p,const size_t){++received;if(p=="open"||p=="close"||p=="stop"){command=p;source="mqtt";dirty=true;}}
+void updateCallback(const String& p,const size_t){++received;if(p=="install"){lan_update_request_install("MQTT");dirty=true;}}
+void restartCallback(const String& p,const size_t){++received;if(p=="restart")restart.request();}
 }
-
-// One bounded attempt; retries are scheduled by mqtt_loop().
-void mqtt_connect()
-{
-    connectAttempted = true;
-    ethClient.stop();
-    DNSClient resolver;
-    IPAddress brokerIP;
-    resolver.begin(Ethernet.dnsServerIP());
-    Debug.print("MQTT: DNS server: ");
-    Debug.println(Ethernet.dnsServerIP());
-    int dnsResult = resolver.getHostByName(mqttBrokerAddress, brokerIP, 500);
-    if (dnsResult != 1)
-    {
-        Debug.print("MQTT: DNS lookup failed, code: ");
-        Debug.println(dnsResult);
-        Debug.println("MQTT: Retry in 10 seconds");
-        ethClient.stop();
-        lastConnectAttempt_ms = millis();
-        return;
-    }
-    Debug.print("MQTT: Broker IP: ");
-    Debug.print(brokerIP);
-    Debug.print(":");
-    Debug.println(mqttBrokerPort);
-    if (!ethClient.connect(brokerIP, mqttBrokerPort))
-    {
-        Debug.println("MQTT: TCP connection failed; retry in 10 seconds");
-        ethClient.stop();
-        lastConnectAttempt_ms = millis();
-        return;
-    }
-    Debug.println("MQTT: TCP connected");
-    if (!mqttClient.connect(mqttClientID, mqttUsername, mqttPassword))
-    {
-        Debug.print("MQTT: Handshake failed, library error: ");
-        Debug.println(static_cast<int>(mqttClient.getLastError()));
-        Debug.println("MQTT: Retry in 10 seconds");
-        ethClient.stop();
-        lastConnectAttempt_ms = millis();
-        return;
-    }
-
-    bool controlSubscribed = mqttClient.subscribe(MQTT_TOPICCONTROLSETNEWDOORSTATE, &onTopicControlSetNewDoorStateReceived);
-    bool restartSubscribed = mqttClient.subscribe(MQTT_TOPICSYSTEM_RESTART, &onTopicSystemRestartReceived);
-    lastConnectAttempt_ms = millis();
-    if (!controlSubscribed || !restartSubscribed) {
-        Debug.print("MQTT: Subscription failed, library error: ");
-        Debug.println(static_cast<int>(mqttClient.getLastError()));
-        Debug.println("MQTT: Retry in 10 seconds");
-        ethClient.stop();
-        return;
-    }
-    Debug.println("MQTT: Connected");
-    mqttFirstRun = true;
-
-    doorStatePublished = false;
-    mqtt_publish_door_state();
-}
-
-/*
- * This handler is called when a subscribed topic (the command) is received.
- */
-void onTopicControlSetNewDoorStateReceived(const String &payload, const size_t size)
-{
-    char buffer[80];
-    numPacketsReceived++;
-
-    // Copy command topic back if payload is valid
-    if (!(payload == MQTT_COMMANDDOOROPEN || payload == MQTT_COMMANDDOORCLOSE))
-    {
-        mqtt_format_received(buffer, sizeof(buffer), MQTT_TOPICCONTROLSETNEWDOORSTATE, payload.c_str(), false);
-        Debug.println(buffer);
-    }
-    else
-    {
-        mqtt_format_received(buffer, sizeof(buffer), MQTT_TOPICCONTROLSETNEWDOORSTATE, payload.c_str(), true);
-        Debug.println(buffer);
-        command = payload;
-      }
-}
-
-/*
- * This handler is called when a subscribed topic (the restart) is received.
- */
-void onTopicSystemRestartReceived(const String &payload, const size_t size)
-{
-    char buffer[80];
-    numPacketsReceived++;
-    if (payload.length() == 0) return; // Echo of retained-command deletion.
-
-    if (payload != MQTT_SYSTEMRESTART)
-    {
-        mqtt_format_received(buffer, sizeof(buffer), MQTT_TOPICSYSTEM_RESTART, payload.c_str(), false);
-        Debug.println(buffer);
-    }
-    else
-    {
-        mqtt_format_received(buffer, sizeof(buffer), MQTT_TOPICSYSTEM_RESTART, payload.c_str(), true);
-        Debug.println(buffer);
-        restartRequest.request(); // Do not publish recursively inside the callback.
-      }
-}
-
-/*
- * This function publishes a topic. It passes the parameters without change to the
- * underlying mqtt client but adds a serial print for logging purposes
- */
-bool mqtt_publish(String topic, String payload, bool retain)
-{
-    if (!mqtt_send(topic, payload, retain)) return false;
-    Debug.println("RUN: Publish sent (QoS0): set " + topic + " to " + payload);
-    return true;
-}
-
-/*
- * Returns the
- */
-String mqtt_getcommand()
-{
-    String retval = command;
-    command = "";
-    return retval;
-}
-
-/*
- * This function is manages the mqtt connection and publishes the uptime every sec.
- */
-void mqtt_loop()
-{
-    if (!mqttInitialized || !network_isready() || driveio_doorcommandactive() || restartRequest.requested()) return;
-
-    // if connection to the broker is lost, try to reconnect
-    if (!mqttClient.isConnected())
-    {
-        if (!connectAttempted || millis() - lastConnectAttempt_ms >= 10000) mqtt_connect();
-    }
-    else
-    {
-        mqttClient.update();
-        if (restartRequest.service(millis(), mqttClient.isConnected(),
-            [](const char* topic, const char* payload, bool retain, int qos) {
-                return mqtt_send(topic, payload, retain, qos);
-            })) {
-            command = "";
-            Debug.println("MQTT: Retained restart command cleared (PUBACK); watchdog restart armed");
-            return;
-        }
-        mqtt_publish_door_state();
-        if (mqttFirstRun)
-        {
-            // global buffer for dealing with json packets
-            // The system-info schema is fixed; a stack document cannot fragment the heap.
-            StaticJsonDocument<256> jsonDoc;
-            char jsonBuffer[256];
-            char ipBuffer[16];
-            const IPAddress ip = Ethernet.localIP();
-
-            // prepare json payload for info topic
-            jsonDoc["application"] = application;
-            jsonDoc["version"] = version;
-            jsonDoc["author"] = author;
-            if (!format_ipv4(ipBuffer, sizeof(ipBuffer), ip[0], ip[1], ip[2], ip[3])) {
-                Debug.println("MQTT: Could not format DHCP address for system info");
-                return;
-            }
-            jsonDoc["ip"] = ipBuffer;
-
-            // serialize json document into global buffer and publish
-            // attention: size of buffer is limited to 256 bytes
-            const size_t bytes = serializeJson(jsonDoc, jsonBuffer, sizeof(jsonBuffer));
-            if (jsonDoc.overflowed() || bytes >= sizeof(jsonBuffer)) {
-                Debug.println("MQTT: System info JSON did not fit its fixed buffer");
-                return;
-            }
-            if (mqtt_send(MQTT_TOPICSYSTEMINFO, jsonBuffer, true)) mqttFirstRun = false;
-        }
-
-        // publish uptime message and online status every 1s
-        static uint32_t prev_ms = millis();
-        char buffer[12];
-        sprintf(buffer, "%lu", uptime_in_secs);
-        if (uint32_t(millis() - prev_ms) >= 1000)
-        {
-            prev_ms = millis();
-            mqtt_send(MQTT_TOPICSYSTEMUPTIME, buffer, false);
-            
-            mqtt_send(MQTT_TOPICSYSTEMSTATUS, mqttFirstWillMsg, true);
-        }
-    }
-
-    // let other loops run
-    yield();
-}
-
-/*
-* Returns the number of packets received since start
-*/
-uint32_t mqtt_getpacketsreceived()
-{
-    return numPacketsReceived;
-}
-
-/*
-* Returns the number of packets sent since start
-*/
-uint32_t mqtt_getpacketssent()
-{
-    return numPacketsSent;
-}
-
-/*
-* Returns true if the client is connected to a broker
-*/
-bool mqtt_isconnected()
-{
-    bool retval = false;
-    if (mqttInitialized){
-        retval = mqttClient.isConnected();
-    }
-    return retval;
-}
-
-/*
-* Returns true if a restart request was sent via mqtt
-*/
-bool mqtt_isrestartrequested()
-{
-    return restartRequest.requested();
-}
+void mqtt_init(){if(initialized)return;mqttClient.setKeepAliveTimeout(60);mqttClient.setCleanSession(true);static String availability=top("availability");mqttClient.setWill(availability,mqttLastWillMsg,true,0);mqttClient.setTimeout(1000);ethClient.setConnectionTimeout(1000);mqttClient.begin(ethClient);initialized=true;}
+void mqtt_connect(){attempted=true;ethClient.stop();DNSClient dns;IPAddress broker;dns.begin(Ethernet.dnsServerIP());if(dns.getHostByName(mqttBrokerAddress,broker,500)!=1||!ethClient.connect(broker,mqttBrokerPort)||!mqttClient.connect(mqttClientID,mqttUsername,mqttPassword)){ethClient.stop();lastAttempt=millis();return;}static String door=top("command/door"),update=top("command/update"),reboot=top("command/restart");if(!mqttClient.subscribe(door,&doorCallback)||!mqttClient.subscribe(update,&updateCallback)||!mqttClient.subscribe(reboot,&restartCallback)){ethClient.stop();lastAttempt=millis();return;}discovery=dirty=true;bootPending=true;previousState=DoorState::Unknown;}
+void mqtt_loop(){if(!initialized||!network_isready()||driveio_doorcommandactive()||restart.requested())return;if(!mqttClient.isConnected()){if(!attempted||millis()-lastAttempt>=10000)mqtt_connect();return;}mqttClient.update();static String reboot=top("command/restart");if(restart.service(millis(),true,reboot.c_str(),[](const char*t,const char*p,bool r,int q){return send(t,p,r,q);}))return;if(doorState.state!=previousState||doorState.target!=previousTarget){previousState=doorState.state;previousTarget=doorState.target;dirty=true;}if(lan_update_state_changed())dirty=true;if(discovery&&publishDiscovery())discovery=false;if(bootPending)publishBootState();if(dirty||millis()-lastState>=10000){publishState();publishUpdateState();}static uint32_t lastAvailability=0;if(millis()-lastAvailability>=1000){send(top("availability"),mqttFirstWillMsg,true);lastAvailability=millis();}}
+String mqtt_getcommand(){String r=command;command="";return r;}void mqtt_note_door_command(const String& s){source=s;dirty=true;}uint32_t mqtt_getpacketsreceived(){return received;}uint32_t mqtt_getpacketssent(){return sent;}bool mqtt_isconnected(){return initialized&&mqttClient.isConnected();}bool mqtt_isrestartrequested(){return restart.requested();}

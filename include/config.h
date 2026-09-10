@@ -20,6 +20,7 @@
 #define PAGE_HMI        3
 #define PAGE_MQTT       4
 #define PAGE_SYSTEM     5
+#define PAGE_UPDATE     6
 
 /* To change the content of the following variables go to config.cpp */
 

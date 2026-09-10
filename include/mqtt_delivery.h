@@ -7,12 +7,12 @@ public:
     void request() { if (!armed) pending = true; }
     bool requested() const { return armed; }
     template <typename Send>
-    bool service(uint32_t now, bool ready, Send send) {
+    bool service(uint32_t now, bool ready, const char* topic, Send send) {
         if (!pending || armed || !ready) return false;
         if (attempted && uint32_t(now - lastAttempt) < 10000) return false;
         attempted = true;
         lastAttempt = now;
-        if (!send("gdc/system/restart", "", true, 1)) return false;
+        if (!send(topic, "", true, 1)) return false;
         pending = false;
         armed = true;
         return true;

@@ -25,17 +25,13 @@ struct Queue {
     }
 };
 Queue usb, lan;
-bool captureRequested = false;
 bool listening = false;
 IPAddress boundIP;
 
 void command(int value) {
     if (value == 'd') {
         window.enable();
-        Debug.println("DEBUG: output enabled until reboot; c = 30-second input capture");
-    } else if (value == 'c') {
-        window.enable();
-        captureRequested = true;
+        Debug.println("DEBUG: output enabled until reboot");
     }
 }
 }
@@ -46,12 +42,6 @@ size_t DebugOutput::write(uint8_t value) {
     // Logging never touches Ethernet or USB while a drive output is active.
     if (window.enabled(millis())) { usb.put(value); lan.put(value); }
     return 1;
-}
-
-bool debug_console_take_capture() {
-    bool requested = captureRequested;
-    captureRequested = false;
-    return requested;
 }
 
 void debug_console_loop() {
@@ -76,7 +66,12 @@ void debug_console_loop() {
         }
         for (unsigned i = 0; i < 32 && client.available(); ++i) command(client.read());
     }
-    if (!window.enabled(millis())) {
+    const bool expiresNow = window.shouldExpire(millis());
+    if (expiresNow) {
+        Debug.println("DEBUG: automatic logging expired; send \"d\" to re-enable it");
+        window.expire();
+    }
+    if (!window.enabled(millis()) && !expiresNow) {
         usb.clear(); lan.clear();
         return;
     }

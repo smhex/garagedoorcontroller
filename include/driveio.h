@@ -21,3 +21,4 @@ int driveio_getiostatus(int io);
 int driveio_getcurrentdoorstatus();
 bool driveio_doorcommandactive();
 bool driveio_takepulsereport(int* pin, unsigned long* duration);
+bool driveio_takepulsestartreport(int* pin, unsigned long* startedAt);

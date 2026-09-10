@@ -1,4 +1,5 @@
 #pragma once
+#include <Arduino.h>
 #include "driveio.h"
 
 enum class DoorState { Unknown, Open, Closed, Opening, Closing, Stopped };
@@ -20,9 +21,15 @@ public:
         if (input == departureInput) return;
         departureInput = -1;
         if (input == DOORSTATUSOPEN) {
+            if (travelActive && target == DOORCOMMANDOPEN)
+                lastOpenTravel = millis() - travelStartedAt;
+            travelPending = travelActive = false;
             state = DoorState::Open;
             target = DOORCOMMANDOPEN;
         } else if (input == DOORSTATUSCLOSED) {
+            if (travelActive && target == DOORCOMMANDCLOSE)
+                lastCloseTravel = millis() - travelStartedAt;
+            travelPending = travelActive = false;
             state = DoorState::Closed;
             target = DOORCOMMANDCLOSE;
         } else if (state == DoorState::Open || state == DoorState::Closed) {
@@ -35,6 +42,9 @@ public:
         if (direction != DOORCOMMANDOPEN && direction != DOORCOMMANDCLOSE) return false;
         if ((state == DoorState::Open && direction == DOORCOMMANDOPEN) ||
             (state == DoorState::Closed && direction == DOORCOMMANDCLOSE)) return false;
+        travelEligible = state == DoorState::Open || state == DoorState::Closed;
+        travelPending = true;
+        travelActive = false;
         departureInput = state == DoorState::Open ? DOORSTATUSOPEN :
                          state == DoorState::Closed ? DOORSTATUSCLOSED : -1;
         target = direction;
@@ -52,13 +62,30 @@ public:
     int stop() {
         if (!isMoving()) return 0;
         const int stopDirection = target;
+        travelPending = travelActive = false;
         state = DoorState::Stopped;
         return stopDirection;
     }
 
+    void travelStarted(int direction, uint32_t startedAt) {
+        if (!travelPending || direction != target) return;
+        travelPending = false;
+        travelActive = travelEligible;
+        travelStartedAt = startedAt;
+    }
+
+    uint32_t lastOpenTravelMs() const { return lastOpenTravel; }
+    uint32_t lastCloseTravelMs() const { return lastCloseTravel; }
+
 private:
     int observed = -1;
     int departureInput = -1;
+    bool travelPending = false;
+    bool travelActive = false;
+    bool travelEligible = false;
+    uint32_t travelStartedAt = 0;
+    uint32_t lastOpenTravel = 0;
+    uint32_t lastCloseTravel = 0;
 };
 
 extern DoorStateTracker doorState;

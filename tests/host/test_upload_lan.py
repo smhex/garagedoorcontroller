@@ -41,7 +41,7 @@ class UploadTests(unittest.TestCase):
                         body = stream.read(int(header[2]))
                         self.assertEqual(body, self.image())
                         self.assertEqual(int(header[3], 16), zlib.crc32(body))
-                        client.sendall(b'STAGED awaiting local approval\n')
+                        client.sendall(b'STAGED awaiting installation\n')
                     stream.close()
             except BaseException as error:
                 errors.append(error)
@@ -50,7 +50,7 @@ class UploadTests(unittest.TestCase):
         thread.start()
         return port, thread, errors
 
-    def test_upload_stages_before_local_approval(self):
+    def test_upload_stages_before_installation(self):
         port, thread, errors = self.controller(b'', True)
         with contextlib.redirect_stdout(io.StringIO()):
             upload('127.0.0.1', self.image(), 'a' * 48, port)

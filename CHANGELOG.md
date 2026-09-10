@@ -1,5 +1,79 @@
 # Changelog
 
+## 1.1.2 - 2026-09-10
+
+- Rename the Home Assistant **Torstatus** entity to **Door status** and use the
+  English states `open`, `closed`, `moving`, `stopped` and `unknown`.
+
+## 1.1.1 - 2026-09-10
+
+- Publish last-boot information once per MQTT connection so Home Assistant no
+  longer records a changing boot timestamp for every periodic state update.
+- Add the Home Assistant **Torstatus** entity with the values **Endlage
+  erreicht**, **In Bewegung**, **Angehalten** and **Unbekannt**.
+
+## 1.1.0 - 2026-09-09
+
+### Breaking change
+
+- Replace the former shared `gdc/system/...`, `gdc/control/...` and
+  `gdc/update/...` MQTT topics with a MAC-address-specific controller tree:
+  `gdc/gdc-<mac-without-colons>/...`. Existing Homebridge mappings and manual
+  Home Assistant YAML configuration must be migrated.
+
+### Added
+
+- Add Home Assistant MQTT Discovery for the garage door, firmware update,
+  restart button, availability and diagnostic entities.
+- Publish the controller's availability using retained MQTT birth/last-will
+  messages, and provide last opening/closing travel times as diagnostics.
+- Support installing a staged firmware update through MQTT when the door is in
+  a safe end position, while retaining the local HMI flow.
+
+### Changed
+
+- Round environmental diagnostic values for Home Assistant and show travel
+  times as whole seconds.
+
+## 1.0.10 - 2026-09-09
+
+- Display the last opening and closing travel times in Home Assistant as whole
+  seconds.
+
+## 1.0.9 - 2026-09-09
+
+- Refine Home Assistant MQTT Discovery presentation: rounded environmental
+  measurements, a last-boot timestamp, a compact MAC-based device identity and
+  reliable ENV-shield and firmware-update state reporting.
+
+## 1.0.8 - 2026-09-08
+
+- Replace global MQTT topics with a controller-specific MAC topic tree and
+  Home Assistant MQTT discovery for the door, update, diagnostics and sensors.
+- Report MKR Zero hardware identity and SAMD21 serial number, plus completed
+  opening and closing travel times.
+
+## 1.0.7 - 2026-09-08
+
+- Stop staged-version detection at the terminating byte of its firmware marker
+  so unrelated binary strings cannot be appended to the version shown on the
+  HMI or in Home Assistant.
+
+## 1.0.6 - 2026-09-08
+
+- Announce verified staged firmware through Home Assistant MQTT discovery. The
+  update can be installed with Home Assistant or by holding the local Info
+  button on the new firmware-update HMI page.
+- Keep staged firmware across door commands and restarts. Installation checks
+  the controller's current door state and refuses unsafe requests without
+  removing the staged image.
+
+## 1.0.5 - 2026-09-08
+
+- Remove the temporary 30-second input capture from console command `c`.
+- Extend automatic USB/TCP logging after startup to 60 seconds. When it ends,
+  the console explains that command `d` enables logging again until reboot.
+
 ## 1.0.4 - 2026-09-07
 
 - Show the staged firmware version in the English local-update dialog. Preserve

@@ -25,8 +25,11 @@ unsigned long prev_ms_open = 0;
 unsigned long prev_ms_close = 0;  
 bool pulseStarted = false;
 bool pulseReportPending = false;
+bool pulseStartReportPending = false;
 int completedPin = -1;
 unsigned long completedDuration = 0;
+int startedPin = -1;
+unsigned long startedAt = 0;
 
 // forward declarations
 void driveio_readiosignals(bool commandPulseActive);
@@ -66,6 +69,9 @@ void driveio_loop()
         if (!pulseStarted) {
             digitalWrite(CMD_OPENDOOR_OUTPUT, HIGH);
             prev_ms_open = millis();
+            startedPin = CMD_OPENDOOR_OUTPUT;
+            startedAt = prev_ms_open;
+            pulseStartReportPending = true;
             pulseStarted = true;
         }
         if (millis() - prev_ms_open >= static_cast<unsigned long>(commandDuration_ms)){
@@ -82,6 +88,9 @@ void driveio_loop()
         if (!pulseStarted) {
             digitalWrite(CMD_CLOSEDOOR_OUTPUT, HIGH);
             prev_ms_close = millis();
+            startedPin = CMD_CLOSEDOOR_OUTPUT;
+            startedAt = prev_ms_close;
+            pulseStartReportPending = true;
             pulseStarted = true;
         }
         if (millis() - prev_ms_close >= static_cast<unsigned long>(commandDuration_ms)){
@@ -194,5 +203,14 @@ bool driveio_takepulsereport(int* pin, unsigned long* duration)
     *pin = completedPin;
     *duration = completedDuration;
     pulseReportPending = false;
+    return true;
+}
+
+bool driveio_takepulsestartreport(int* pin, unsigned long* started)
+{
+    if (!pulseStartReportPending) return false;
+    *pin = startedPin;
+    *started = startedAt;
+    pulseStartReportPending = false;
     return true;
 }

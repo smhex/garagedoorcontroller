@@ -9,7 +9,6 @@ public:
 };
 extern DebugOutput Debug;
 void debug_console_loop();
-bool debug_console_take_capture();
 #else
 // Host tests substitute the Arduino Serial interface.
 #define Debug Serial

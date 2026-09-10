@@ -8,8 +8,6 @@
 #include "driveio.h"
 #include "firmware_image.h"
 #include "lan_update.h"
-#include "hmi.h"
-#include "local_approval.h"
 #include <WDTZero.h>
 #include "mqtt.h"
 #include "network.h"
@@ -46,11 +44,21 @@ char stagedVersion[16] = "unknown";
 const char versionMarker[] = "GDC-FW:";
 uint8_t versionMarkerIndex = 0;
 uint8_t candidateLength = 0;
-LocalApproval approval;
-bool approvalPending = false;
-bool approvalDismissed = false;
+bool versionCandidateComplete = false;
+bool stagedAvailable = false;
+bool installRequested = false;
+bool stateChanged = true;
+String installSource;
+String lastDoorCommandSource;
+uint32_t lastDoorCommandAt = 0;
 bool failed = false;
 uint32_t failedAt = 0;
+
+void setStagedAvailable(bool value) {
+    if (stagedAvailable == value) return;
+    stagedAvailable = value;
+    stateChanged = true;
+}
 
 void fail(const char* message) {
     if (client.connected()) { client.print("ERROR "); client.println(message); }
@@ -60,15 +68,39 @@ void fail(const char* message) {
     phase = Phase::Idle;
     failed = true;
     failedAt = millis();
+    stateChanged = true;
     Debug.print("OTA: rejected/aborted: "); Debug.println(message);
 }
 
-void beginApproval() {
-    approval.begin(hmi_button_sample());
-    approvalPending = true;
-    approvalDismissed = false;
-    started = millis();
-    Debug.println("OTA: staged image awaits local INFO button approval");
+const char* installBlockReason() {
+    if (!stagedAvailable) return "no staged image";
+    if (driveio_doorcommandactive()) return "command active";
+    if (mqtt_isrestartrequested()) return "restart pending";
+    switch (doorState.state) {
+        case DoorState::Open: return nullptr;
+        case DoorState::Closed: return nullptr;
+        case DoorState::Opening: return "door opening";
+        case DoorState::Closing: return "door closing";
+        case DoorState::Stopped: return "door stopped";
+        case DoorState::Unknown: return "position unknown";
+    }
+    return "position unknown";
+}
+
+void activateStagedImage() {
+    const char* blocked = installBlockReason();
+    if (blocked) {
+        installRequested = false;
+        Debug.print("OTA: install request rejected: "); Debug.println(blocked);
+        return;
+    }
+    if (!sd.rename(staged, "UPDATE.BIN")) { fail("cannot activate staged image"); return; }
+    setStagedAvailable(false);
+    installRequested = false;
+    phase = Phase::Reboot;
+    lastActivity = millis();
+    stateChanged = true;
+    Debug.print("OTA: install requested via "); Debug.print(installSource); Debug.println("; rebooting into SDU");
 }
 
 bool validVersion(const char* value) {
@@ -81,6 +113,7 @@ bool validVersion(const char* value) {
 
 void resetVersionDetection() {
     versionMarkerIndex = candidateLength = 0;
+    versionCandidateComplete = false;
     strcpy(stagedVersion, "unknown");
 }
 
@@ -90,10 +123,17 @@ void detectVersion(const uint8_t* data, size_t length) {
         if (versionMarkerIndex < sizeof(versionMarker) - 1) {
             if (value == versionMarker[versionMarkerIndex]) ++versionMarkerIndex;
             else versionMarkerIndex = value == versionMarker[0] ? 1 : 0;
-        } else if (candidateLength < sizeof(stagedVersion) - 1 &&
-                   ((value >= '0' && value <= '9') || value == '.' || value == '-' || (value >= 'a' && value <= 'z'))) {
-            stagedVersion[candidateLength++] = value;
-            stagedVersion[candidateLength] = 0;
+        } else if (!versionCandidateComplete) {
+            const bool versionCharacter = (value >= '0' && value <= '9') || value == '.' ||
+                                          value == '-' || (value >= 'a' && value <= 'z');
+            if (versionCharacter && candidateLength < sizeof(stagedVersion) - 1) {
+                stagedVersion[candidateLength++] = value;
+                stagedVersion[candidateLength] = 0;
+            } else {
+                // The marker's terminating NUL is followed by unrelated binary data.
+                // Do not append later alphabetic bytes from that data to the version.
+                versionCandidateComplete = true;
+            }
         }
     }
 }
@@ -155,38 +195,59 @@ bool lan_update_busy() {
     return phase == Phase::Receive || phase == Phase::Verify || phase == Phase::BootVerify || phase == Phase::Reboot;
 }
 
-bool lan_update_approval_pending() { return approvalPending; }
+bool lan_update_installing() { return phase == Phase::Reboot; }
 
-void lan_update_cancel_for_command() {
-    if (!approvalPending) return;
-    approvalPending = false;
-    approvalDismissed = false;
-    if (sdReady) sd.remove(staged);
-    if (sdReady) sd.remove(versionFile);
-    Debug.println("OTA: local/remote door command cancelled pending update and removed staged image");
+bool lan_update_available() { return stagedAvailable; }
+
+bool lan_update_state_changed() {
+    const bool changed = stateChanged;
+    stateChanged = false;
+    return changed;
+}
+
+String lan_update_version() { return String(stagedVersion); }
+
+bool lan_update_can_install() { return installBlockReason() == nullptr; }
+const char* lan_update_install_block_reason() { return installBlockReason(); }
+
+void lan_update_request_install(const char* source) {
+    installRequested = true;
+    installSource = source;
+}
+
+void lan_update_note_door_command(const String& source) {
+    lastDoorCommandSource = source;
+    lastDoorCommandAt = millis();
 }
 
 bool lan_update_display(String* lines) {
-    if (failed && millis() - failedAt >= 5000) failed = false;
-    if (!lan_update_busy() && !approvalPending && !failed) return false;
+    if (!lan_update_busy() && !stagedAvailable && !failed) return false;
     if (failed) {
-        lines[0] = "Update cancelled";
-        lines[1] = "See PlatformIO log";
-        lines[2] = "Firmware unchanged";
+        lines[0] = "Firmware update";
+        lines[1] = "Transfer failed";
+        lines[2] = "See VS Code log";
         lines[3] = "";
         return true;
     }
-    if (approvalPending) {
-        lines[0] = "New firmware";
-        lines[1] = "Version " + String(stagedVersion);
-        lines[2] = "INFO: Install";
-        lines[3] = String(60 - min(60ul, (millis() - started) / 1000)) + " s - drive cancels";
-    } else {
+    if (phase == Phase::Receive || phase == Phase::Verify || phase == Phase::BootVerify || phase == Phase::Reboot) {
         lines[0] = "Firmware update";
         lines[1] = "Version " + String(stagedVersion);
         lines[2] = phase == Phase::Receive ? "Receiving..." :
                    phase == Phase::Verify || phase == Phase::BootVerify ? "Verifying..." : "Restarting...";
         lines[3] = String(size ? (position * 100ul / size) : 0) + " %";
+        return true;
+    }
+    lines[0] = "Firmware update";
+    lines[1] = "Current: " + version;
+    lines[2] = "New: " + String(stagedVersion);
+    const char* blocked = installBlockReason();
+    if (!blocked) lines[3] = "Ready: hold INFO";
+    else {
+        lines[3] = "Blocked: " + String(blocked);
+        if ((doorState.state == DoorState::Opening || doorState.state == DoorState::Closing) &&
+            millis() - lastDoorCommandAt < 5000) {
+            lines[3] += lastDoorCommandSource == MQTT_COMMANDSOURCEREMOTE ? " (MQTT)" : " (local)";
+        }
     }
     return true;
 }
@@ -217,19 +278,8 @@ void lan_update_loop() {
         }
         return;
     }
-    if (approvalPending) {
-        if (millis() - started >= 60000) {
-            approvalPending = false;
-            sd.remove(versionFile);
-            approvalDismissed = true;
-            Debug.println("OTA: local approval timed out; staged image remains until reboot or replacement");
-        } else if (approval.update(hmi_button_sample(), hmi_info_pressed())) {
-            if (!sd.rename(staged, "UPDATE.BIN")) { fail("cannot activate staged image"); return; }
-            approvalPending = false;
-            Debug.println("OTA: locally approved; rebooting into SDU");
-            phase = Phase::Reboot; lastActivity = millis();
-        }
-    }
+    if (installRequested) activateStagedImage();
+    if (phase == Phase::Reboot) return;
     if (phase != Phase::BootVerify && (!network_isready() || (listening && boundIP != Ethernet.localIP()))) {
         if (phase != Phase::Idle) fail("network changed");
         listening = false;
@@ -292,16 +342,18 @@ void lan_update_loop() {
             file.close();
             if (phase == Phase::BootVerify) {
                 phase = Phase::Idle;
-                beginApproval();
+                setStagedAvailable(true);
+                Debug.println("OTA: staged image is available for local or MQTT installation");
             } else {
                 if (sd.exists(staged)) sd.remove(staged);
                 if (sd.exists(versionFile)) sd.remove(versionFile);
                 if (!sd.rename(temporary, staged)) { fail("cannot publish staged image"); return; }
                 if (!saveStagedVersion()) { sd.remove(staged); fail("cannot save staged version"); return; }
-                client.println("STAGED awaiting local approval");
+                client.println("STAGED awaiting installation");
                 client.stop();
                 phase = Phase::Idle;
-                beginApproval();
+                setStagedAvailable(true);
+                Debug.println("OTA: staged image is available for local or MQTT installation");
             }
         }
     }

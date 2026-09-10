@@ -38,9 +38,9 @@ def upload(host, data, token, port=65280):
             if legacy_server and result == "OK staged; rebooting":
                 print("Firmware accepted by the previous updater; controller is rebooting.")
                 return
-            if result != "STAGED awaiting local approval":
+            if result != "STAGED awaiting installation":
                 raise RuntimeError(result or "Upload interrupted; no confirmation received")
-    print("Firmware verified on SD. Approve it with INFO on the controller within 60 seconds.")
+    print("Firmware verified on SD. Install it from Home Assistant or hold INFO on the controller.")
 
 
 def main():

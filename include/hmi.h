@@ -12,8 +12,7 @@
 
 #define HMI_BEEPER               7
 
-bool hmi_info_pressed();
-uint32_t hmi_button_sample();
+bool hmi_take_info_long_press();
 
 /* exports */
 void hmi_init();
