@@ -44,7 +44,7 @@ bool publishDiscovery() { return
   discover("binary_sensor","env_shield","\"name\":\"ENV shield\",\"state_topic\":\"~/state\",\"value_template\":\"{{ 'ON' if value_json.sensors.available else 'OFF' }}\",\"payload_on\":\"ON\",\"payload_off\":\"OFF\",\"device_class\":\"connectivity\",\"entity_category\":\"diagnostic\"") &&
   discover("sensor","ip_address","\"name\":\"IP address\",\"state_topic\":\"~/state\",\"value_template\":\"{{ value_json.system.ip }}\",\"icon\":\"mdi:ip-network\",\"entity_category\":\"diagnostic\"") &&
   discover("sensor","last_boot","\"name\":\"Last boot\",\"state_topic\":\"~/system/boot\",\"value_template\":\"{{ (now() - timedelta(seconds=value_json.uptime_s)).isoformat() }}\",\"device_class\":\"timestamp\",\"entity_category\":\"diagnostic\"") &&
-  discover("sensor","last_command_source","\"name\":\"Last command source\",\"state_topic\":\"~/state\",\"value_template\":\"{{ value_json.door.last_command_source }}\",\"device_class\":\"enum\",\"options\":[\"local\",\"mqtt\",\"external\",\"unknown\"],\"entity_category\":\"diagnostic\"") &&
+  discover("sensor","last_command_source","\"name\":\"Last command source\",\"state_topic\":\"~/state\",\"value_template\":\"{{ value_json.door.last_command_source }}\",\"device_class\":\"enum\",\"options\":[\"local\",\"" MQTT_COMMANDSOURCEREMOTE "\",\"external\",\"unknown\"],\"entity_category\":\"diagnostic\"") &&
   discover("sensor","open_travel_time","\"name\":\"Last opening travel time\",\"state_topic\":\"~/state\",\"value_template\":\"{{ value_json.door.last_open_travel_s }}\",\"device_class\":\"duration\",\"unit_of_measurement\":\"s\",\"suggested_display_precision\":0,\"entity_category\":\"diagnostic\"") &&
   discover("sensor","close_travel_time","\"name\":\"Last closing travel time\",\"state_topic\":\"~/state\",\"value_template\":\"{{ value_json.door.last_close_travel_s }}\",\"device_class\":\"duration\",\"unit_of_measurement\":\"s\",\"suggested_display_precision\":0,\"entity_category\":\"diagnostic\""); }
 void publishBootState() {
@@ -117,7 +117,7 @@ void publishState() {
   }
 }
 void publishUpdateState() { StaticJsonDocument<256> j; char p[256]; j["installed_version"]=version; j["latest_version"]=(lan_update_available()||lan_update_installing())?lan_update_version():version; j["in_progress"]=lan_update_installing(); if(lan_update_installing())j["update_percentage"]=100;else j["update_percentage"]=nullptr; size_t n=serializeJson(j,p,sizeof(p)); if(!j.overflowed()&&n<sizeof(p)) send(top("update/state"),p,true); }
-void doorCallback(const String& p,const size_t){++received;if(p=="open"||p=="close"||p=="stop"){command=p;source="mqtt";dirty=true;}}
+void doorCallback(const String& p,const size_t){++received;if(p=="open"||p=="close"||p=="stop"){command=p;source=MQTT_COMMANDSOURCEREMOTE;dirty=true;}}
 void updateCallback(const String& p,const size_t){++received;if(p=="install"){lan_update_request_install("MQTT");dirty=true;}}
 void restartCallback(const String& p,const size_t){++received;if(p=="restart")restart.request();}
 }

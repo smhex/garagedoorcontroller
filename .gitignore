@@ -3,7 +3,8 @@
 .vscode/c_cpp_properties.json
 .vscode/launch.json
 .vscode/ipch
-.vscode
+.vscode/*
+!.vscode/extensions.json
 .DS_Store
 output.log
 include/config_local.h

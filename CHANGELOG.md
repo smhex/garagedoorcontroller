@@ -1,5 +1,12 @@
 # Changelog
 
+## 1.1.3 - 2026-09-11
+
+- Use `remote` consistently for the last command source in Home Assistant MQTT
+  Discovery and command reception, matching the door command state feedback.
+- Recommend PlatformIO's official VS Code extension and flag the incompatible
+  PIOArduino extension as unwanted.
+
 ## 1.1.2 - 2026-09-10
 
 - Rename the Home Assistant **Torstatus** entity to **Door status** and use the
