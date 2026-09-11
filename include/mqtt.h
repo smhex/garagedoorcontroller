@@ -28,3 +28,4 @@ uint32_t mqtt_getpacketsreceived();
 uint32_t mqtt_getpacketssent();
 bool mqtt_isconnected();
 bool mqtt_isrestartrequested();
+const char* mqtt_getstatus_text();

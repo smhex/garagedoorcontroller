@@ -39,8 +39,7 @@ const unsigned int displayHeight = 64;
 #define ALIGN_LEFT 0
 
 /*
-* Initializes the display and its buttons. After bootup the application informaton is
-* shown as a splashscreen for 5 secons.
+ * Initializes the display and its buttons.
 */
 void hmi_init()
 {

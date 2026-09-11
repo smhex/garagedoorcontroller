@@ -1,5 +1,29 @@
 # Changelog
 
+## 1.1.7 - 2026-09-11
+
+- Fix Ethernet initialization before the hardware check. Version 1.1.6 checked
+  the uninitialized cached chip type, preventing DHCP, MQTT and the LAN updater
+  from starting.
+
+## 1.1.6 - 2026-09-11
+
+- Show the MQTT connection phase and failure source on the HMI, including DNS,
+  TCP, broker/authentication and subscription errors.
+- Show detailed MQTT-library diagnostics on the HMI, including broker CONNACK
+  rejection reasons, protocol, read/write, timeout, PONG and packet errors.
+- Treat an unknown Ethernet link state as unavailable, display it explicitly,
+  and avoid DHCP attempts when the Ethernet hardware is absent.
+
+## 1.1.5 - 2026-09-11
+
+- Optimize the HMI navigation around a diagnostic overview with firmware, door,
+  Ethernet and MQTT status.
+- Replace the separate MQTT page with a combined network page and remove the
+  HMI LED debug page from the normal navigation cycle.
+- Move author and firmware-update information to the system page and use clear
+  textual connection and door states instead of raw boolean values.
+
 ## 1.1.3 - 2026-09-11
 
 - Use `remote` consistently for the last command source in Home Assistant MQTT

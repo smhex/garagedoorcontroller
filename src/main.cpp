@@ -53,10 +53,43 @@ void show_systeminfo();
 void show_page_sensors();
 void show_page_overview();
 void show_page_driveio();
-void show_page_hmi();
-void show_page_mqtt();
+void show_page_network();
 void show_page_system();
 void show_page_update();
+
+const char* door_state_name(DoorState state)
+{
+  switch (state)
+  {
+  case DoorState::Open: return "OPEN";
+  case DoorState::Closed: return "CLOSED";
+  case DoorState::Opening: return "OPENING";
+  case DoorState::Closing: return "CLOSING";
+  case DoorState::Stopped: return "STOPPED";
+  default: return "UNKNOWN";
+  }
+}
+
+String network_status()
+{
+  if (Ethernet.hardwareStatus() == EthernetNoHardware) return "NO HW";
+  if (Ethernet.linkStatus() == LinkOFF) return "LINK DOWN";
+  if (Ethernet.linkStatus() == Unknown) return "LINK UNKNOWN";
+  if (!network_isready()) return "DHCP...";
+  return "OK " + IPAddressToString(Ethernet.localIP());
+}
+
+String mqtt_status()
+{
+  if (!network_isready()) return "WAIT NET";
+  return mqtt_getstatus_text();
+}
+
+String info_page_title(const char* name, int page)
+{
+  const int pageCount = lan_update_available() ? 6 : 5;
+  return String(name) + " " + String(page) + "/" + String(pageCount);
+}
 
 // Buffer input transitions during pulses; Serial output only runs after release.
 void trace_drive_inputs(bool pulseActiveAtSample)
@@ -239,6 +272,10 @@ void loop()
           ++currentSystemInfoPage;
         }
       }
+      else
+      {
+        currentSystemInfoPage = PAGE_OVERVIEW;
+      }
       char buffer[80];
       sprintf(buffer, "RUN: SYSINFO: %d", currentSystemInfoPage);
       Debug.println(buffer);
@@ -352,17 +389,14 @@ void show_systeminfo()
   case PAGE_OVERVIEW:
     show_page_overview();
     break;
+  case PAGE_NETWORK:
+    show_page_network();
+    break;
   case PAGE_SENSORS:
     show_page_sensors();
     break;
   case PAGE_DRIVEIO:
     show_page_driveio();
-    break;
-  case PAGE_HMI:
-    show_page_hmi();
-    break;
-  case PAGE_MQTT:
-    show_page_mqtt();
     break;
   case PAGE_SYSTEM:
     show_page_system();
@@ -424,16 +458,27 @@ void watchdog_onShutdown()
 */
 void show_page_overview()
 {
-  String ethStatus = (ethClient.connected()==true) ? "connected" : "disconnected";
-  String mqttStatus = (mqtt_isconnected()==true) ? "connected" : "disconnected";
   String text[4] = {
-    "Version " + version + (lan_update_available() ? " [*]" : ""),
-    "Copyright " + author, 
-    "Ethernet " + ethStatus,
-    "MQTT " + mqttStatus
+    "FW " + version + (lan_update_available() ? " [*]" : ""),
+    "Door " + String(door_state_name(doorState.state)),
+    "ETH " + network_status(),
+    "MQTT " + mqtt_status()
   };
   int len = sizeof(text) / sizeof(text[0]);
   hmi_display_frame(application, text, len);
+}
+
+void show_page_network()
+{
+  String text[4] = {
+    "IP: " + IPAddressToString(Ethernet.localIP()),
+    "Link: " + String(Ethernet.linkStatus() == LinkON ? "UP" :
+                        Ethernet.linkStatus() == LinkOFF ? "DOWN" : "UNKNOWN"),
+    "DHCP: " + String(network_isready() ? "OK" : "WAIT"),
+    "MQTT: " + mqtt_status()
+  };
+  int len = sizeof(text) / sizeof(text[0]);
+  hmi_display_frame(info_page_title("Network", 2), text, len);
 }
 
 void show_page_update()
@@ -463,7 +508,7 @@ void show_page_sensors()
       "Pressure: " + toString(sensors_get_pressure()) + "kPa",
       "Illuminance: " + toString(sensors_get_illuminance()) + "lx"};
   int len = sizeof(text) / sizeof(text[0]);
-  hmi_display_frame("Sensors", text, len);
+  hmi_display_frame(info_page_title("Sensors", 3), text, len);
 }
 
 void show_page_driveio()
@@ -474,39 +519,14 @@ void show_page_driveio()
       "D2 (Output): " + String(driveio_getiostatus(CMD_CLOSEDOOR_OUTPUT)),
       "D3 (Input): " + String(driveio_getiostatus(STATUS_DOORISCLOSED_INPUT))};
   int len = sizeof(text) / sizeof(text[0]);
-  hmi_display_frame("DRIVEIO", text, len);
+  hmi_display_frame(info_page_title("Door I/O", 4), text, len);
 }
 
 /*
 * Displays led states
 */
-void show_page_hmi()
-{
-  String text[3] = {
-      "Led 1: " + String(hmi_getled(HMI_LED_DOOROPEN)),
-      "Led 2: " + String(hmi_getled(HMI_LED_SYSTEMINFO)),
-      "Led 3: " + String(hmi_getled(HMI_LED_DOORCLOSED)),
-  };
-  int len = sizeof(text) / sizeof(text[0]);
-  hmi_display_frame("HMI", text, len);
-}
-
 /*
-* Display the number of sent and received packets
-*/
-void show_page_mqtt()
-{
-  String text[3] = {
-      "Msg.Sent: " + String(mqtt_getpacketssent()),
-      "Msg.Received: " + String(mqtt_getpacketsreceived()),
-      "Connected: " + String(mqtt_isconnected()),
-  };
-  int len = sizeof(text) / sizeof(text[0]);
-  hmi_display_frame("MQTT", text, len);
-}
-
-/*
-* Display the IP, Link status and Uptime
+* Display system information
 */
 void show_page_system()
 {
@@ -525,10 +545,10 @@ void show_page_system()
   char buffer[80];
   sprintf(buffer, "%u.%02u:%02u:%02u", days, hours, mins, secs);
   String text[3] = {
-      "IP: " + IPAddressToString(Ethernet.localIP()),
-      "Link: " + String(Ethernet.linkStatus()),
       "Uptime: " + String(buffer),
-  };
+      "Copyright " + author,
+      "Update: " + String(lan_update_available() ? "AVAILABLE" : "NONE"),
+    };
   int len = sizeof(text) / sizeof(text[0]);
-  hmi_display_frame("System", text, len);
+  hmi_display_frame(info_page_title("System", 5), text, len);
 }

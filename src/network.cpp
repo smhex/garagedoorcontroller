@@ -27,21 +27,28 @@ void acquireLease()
 
 void network_init()
 {
-    acquireLease();
+    // linkStatus() initializes and detects the W5x00 chip. hardwareStatus()
+    // alone only returns the cached chip value and would report no hardware
+    // before that first initialization.
+    Ethernet.linkStatus();
     if (Ethernet.hardwareStatus() == EthernetNoHardware) {
         Debug.println("ERROR: Ethernet shield was not found");
+        return;
     }
+    acquireLease();
 }
 
 bool network_isready()
 {
-    return ready && Ethernet.linkStatus() != LinkOFF;
+    return ready && Ethernet.linkStatus() == LinkON;
 }
 
 void network_loop()
 {
     // DHCP can block. Never extend a running drive command pulse.
     if (driveio_doorcommandactive()) return;
+
+    if (Ethernet.hardwareStatus() == EthernetNoHardware) return;
 
     if (Ethernet.linkStatus() == LinkOFF) {
         if (ready) ethClient.stop();

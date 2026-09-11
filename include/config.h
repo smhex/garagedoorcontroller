@@ -12,15 +12,13 @@
 #define CMD_CLOSEDOOR_OUTPUT      2
 #define STATUS_DOORISCLOSED_INPUT 3
 
-// define the different pages on the OLED display - their sequence
-// can be changed by simply re-arranging their position 
+// Define the pages on the OLED display in their navigation order.
 #define PAGE_OVERVIEW   0
-#define PAGE_SENSORS    1
-#define PAGE_DRIVEIO    2
-#define PAGE_HMI        3
-#define PAGE_MQTT       4
-#define PAGE_SYSTEM     5
-#define PAGE_UPDATE     6
+#define PAGE_NETWORK    1
+#define PAGE_SENSORS    2
+#define PAGE_DRIVEIO    3
+#define PAGE_SYSTEM     4
+#define PAGE_UPDATE     5
 
 /* To change the content of the following variables go to config.cpp */
 

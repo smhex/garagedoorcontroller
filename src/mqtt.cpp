@@ -15,9 +15,30 @@
 
 MQTTPubSub::PubSubClient<1536> mqttClient;
 namespace {
+enum class MqttStatus {
+  Connecting,
+  Connected,
+  DnsError,
+  TcpError,
+  ProtocolError,
+  ClientIdRejected,
+  BrokerUnavailable,
+  BadCredentials,
+  NotAuthorized,
+  SubscribeError,
+  NetworkTimeout,
+  ReadError,
+  WriteError,
+  PongTimeout,
+  PacketError,
+  BufferError,
+  Error,
+};
+
 String command, source = "unknown";
 uint32_t received = 0, sent = 0, lastState = 0;
 bool initialized = false, attempted = false, discovery = true, dirty = true, bootPending = true;
+MqttStatus status = MqttStatus::Connecting;
 uint32_t lastAttempt = 0;
 MqttRestart restart;
 DoorState previousState = DoorState::Unknown;
@@ -29,7 +50,31 @@ String top(const char* suffix) { return root()+"/"+suffix; }
 String macString() { char b[18]; snprintf(b,sizeof(b),"%02x:%02x:%02x:%02x:%02x:%02x",mac[0],mac[1],mac[2],mac[3],mac[4],mac[5]); return String(b); }
 const char* stateName(DoorState s) { switch(s) { case DoorState::Open:return "open"; case DoorState::Closed:return "closed"; case DoorState::Opening:return "opening"; case DoorState::Closing:return "closing"; case DoorState::Stopped:return "stopped"; default:return "unknown"; } }
 const char* doorStatusName(DoorState s) { switch(s) { case DoorState::Open:return "open"; case DoorState::Closed:return "closed"; case DoorState::Opening: case DoorState::Closing:return "moving"; case DoorState::Stopped:return "stopped"; default:return "unknown"; } }
-bool send(const String& t,const String& p,bool retain,int qos=0) { if(!mqtt_isconnected()||!network_isready()||driveio_doorcommandactive()||restart.requested()) return false; if(mqttClient.publish(t,p,retain,qos)){++sent;return true;} Debug.println("MQTT: publish failed");return false; }
+void setStatusFromClient() {
+  switch (mqttClient.getLastError()) {
+  case LWMQTT_CONNECTION_DENIED:
+    switch (mqttClient.getReturnCode()) {
+    case LWMQTT_UNACCEPTABLE_PROTOCOL: status = MqttStatus::ProtocolError; return;
+    case LWMQTT_IDENTIFIER_REJECTED: status = MqttStatus::ClientIdRejected; return;
+    case LWMQTT_SERVER_UNAVAILABLE: status = MqttStatus::BrokerUnavailable; return;
+    case LWMQTT_BAD_USERNAME_OR_PASSWORD: status = MqttStatus::BadCredentials; return;
+    case LWMQTT_NOT_AUTHORIZED: status = MqttStatus::NotAuthorized; return;
+    default: status = MqttStatus::Error; return;
+    }
+  case LWMQTT_FAILED_SUBSCRIPTION: status = MqttStatus::SubscribeError; return;
+  case LWMQTT_NETWORK_FAILED_CONNECT: status = MqttStatus::TcpError; return;
+  case LWMQTT_NETWORK_TIMEOUT: status = MqttStatus::NetworkTimeout; return;
+  case LWMQTT_NETWORK_FAILED_READ: status = MqttStatus::ReadError; return;
+  case LWMQTT_NETWORK_FAILED_WRITE: status = MqttStatus::WriteError; return;
+  case LWMQTT_PONG_TIMEOUT: status = MqttStatus::PongTimeout; return;
+  case LWMQTT_BUFFER_TOO_SHORT: case LWMQTT_SUBACK_ARRAY_OVERFLOW: status = MqttStatus::BufferError; return;
+  case LWMQTT_VARNUM_OVERFLOW: case LWMQTT_REMAINING_LENGTH_OVERFLOW:
+  case LWMQTT_REMAINING_LENGTH_MISMATCH: case LWMQTT_MISSING_OR_WRONG_PACKET:
+    status = MqttStatus::PacketError; return;
+  default: status = MqttStatus::Error; return;
+  }
+}
+bool send(const String& t,const String& p,bool retain,int qos=0) { if(!mqtt_isconnected()||!network_isready()||driveio_doorcommandactive()||restart.requested()) return false; if(mqttClient.publish(t,p,retain,qos)){++sent;return true;} setStatusFromClient(); lastAttempt=millis(); Debug.println("MQTT: publish failed");return false; }
 String dev() { const String hardwareId=id(); return String("\"device\":{\"identifiers\":[\"")+hardwareId+"\"],\"name\":\"Garage Door Controller "+macString().substring(9)+"\",\"manufacturer\":\"smhex\",\"model\":\"Garage Door Controller\",\"model_id\":\"GDC-MKRZERO\",\"serial_number\":\""+hardwareId+"\",\"hw_version\":\"Arduino MKR Zero\",\"sw_version\":\""+version+"\"}"; }
 bool discover(const char* component,const char* object,const String& config) { String uid=id()+"_"+object; String p=String("{\"~\":\"")+root()+"\",\"unique_id\":\""+uid+"\","+config+",\"availability_topic\":\"~/availability\",\"payload_available\":\"online\",\"payload_not_available\":\"offline\","+dev()+",\"origin\":{\"name\":\"Garage Door Controller\",\"sw_version\":\""+version+"\"}}"; return send(String("homeassistant/")+component+"/"+uid+"/config",p,true); }
 bool publishDiscovery() { return
@@ -122,6 +167,6 @@ void updateCallback(const String& p,const size_t){++received;if(p=="install"){la
 void restartCallback(const String& p,const size_t){++received;if(p=="restart")restart.request();}
 }
 void mqtt_init(){if(initialized)return;mqttClient.setKeepAliveTimeout(60);mqttClient.setCleanSession(true);static String availability=top("availability");mqttClient.setWill(availability,mqttLastWillMsg,true,0);mqttClient.setTimeout(1000);ethClient.setConnectionTimeout(1000);mqttClient.begin(ethClient);initialized=true;}
-void mqtt_connect(){attempted=true;ethClient.stop();DNSClient dns;IPAddress broker;dns.begin(Ethernet.dnsServerIP());if(dns.getHostByName(mqttBrokerAddress,broker,500)!=1||!ethClient.connect(broker,mqttBrokerPort)||!mqttClient.connect(mqttClientID,mqttUsername,mqttPassword)){ethClient.stop();lastAttempt=millis();return;}static String door=top("command/door"),update=top("command/update"),reboot=top("command/restart");if(!mqttClient.subscribe(door,&doorCallback)||!mqttClient.subscribe(update,&updateCallback)||!mqttClient.subscribe(reboot,&restartCallback)){ethClient.stop();lastAttempt=millis();return;}discovery=dirty=true;bootPending=true;previousState=DoorState::Unknown;}
-void mqtt_loop(){if(!initialized||!network_isready()||driveio_doorcommandactive()||restart.requested())return;if(!mqttClient.isConnected()){if(!attempted||millis()-lastAttempt>=10000)mqtt_connect();return;}mqttClient.update();static String reboot=top("command/restart");if(restart.service(millis(),true,reboot.c_str(),[](const char*t,const char*p,bool r,int q){return send(t,p,r,q);}))return;if(doorState.state!=previousState||doorState.target!=previousTarget){previousState=doorState.state;previousTarget=doorState.target;dirty=true;}if(lan_update_state_changed())dirty=true;if(discovery&&publishDiscovery())discovery=false;if(bootPending)publishBootState();if(dirty||millis()-lastState>=10000){publishState();publishUpdateState();}static uint32_t lastAvailability=0;if(millis()-lastAvailability>=1000){send(top("availability"),mqttFirstWillMsg,true);lastAvailability=millis();}}
-String mqtt_getcommand(){String r=command;command="";return r;}void mqtt_note_door_command(const String& s){source=s;dirty=true;}uint32_t mqtt_getpacketsreceived(){return received;}uint32_t mqtt_getpacketssent(){return sent;}bool mqtt_isconnected(){return initialized&&mqttClient.isConnected();}bool mqtt_isrestartrequested(){return restart.requested();}
+void mqtt_connect(){attempted=true;status=MqttStatus::Connecting;ethClient.stop();DNSClient dns;IPAddress broker;dns.begin(Ethernet.dnsServerIP());if(dns.getHostByName(mqttBrokerAddress,broker,500)!=1){status=MqttStatus::DnsError;ethClient.stop();lastAttempt=millis();return;}if(!ethClient.connect(broker,mqttBrokerPort)){status=MqttStatus::TcpError;ethClient.stop();lastAttempt=millis();return;}if(!mqttClient.connect(mqttClientID,mqttUsername,mqttPassword)){setStatusFromClient();ethClient.stop();lastAttempt=millis();return;}static String door=top("command/door"),update=top("command/update"),reboot=top("command/restart");if(!mqttClient.subscribe(door,&doorCallback)||!mqttClient.subscribe(update,&updateCallback)||!mqttClient.subscribe(reboot,&restartCallback)){setStatusFromClient();ethClient.stop();lastAttempt=millis();return;}status=MqttStatus::Connected;discovery=dirty=true;bootPending=true;previousState=DoorState::Unknown;}
+void mqtt_loop(){if(!initialized||!network_isready()||driveio_doorcommandactive()||restart.requested())return;if(!mqttClient.isConnected()){if(!attempted||millis()-lastAttempt>=10000)mqtt_connect();return;}if(!mqttClient.update()){setStatusFromClient();lastAttempt=millis();return;}static String reboot=top("command/restart");if(restart.service(millis(),true,reboot.c_str(),[](const char*t,const char*p,bool r,int q){return send(t,p,r,q);}))return;if(doorState.state!=previousState||doorState.target!=previousTarget){previousState=doorState.state;previousTarget=doorState.target;dirty=true;}if(lan_update_state_changed())dirty=true;if(discovery&&publishDiscovery())discovery=false;if(bootPending)publishBootState();if(dirty||millis()-lastState>=10000){publishState();publishUpdateState();}static uint32_t lastAvailability=0;if(millis()-lastAvailability>=1000){send(top("availability"),mqttFirstWillMsg,true);lastAvailability=millis();}}
+String mqtt_getcommand(){String r=command;command="";return r;}void mqtt_note_door_command(const String& s){source=s;dirty=true;}uint32_t mqtt_getpacketsreceived(){return received;}uint32_t mqtt_getpacketssent(){return sent;}bool mqtt_isconnected(){return initialized&&mqttClient.isConnected();}bool mqtt_isrestartrequested(){return restart.requested();}const char* mqtt_getstatus_text(){if(mqtt_isconnected())return "OK";switch(status){case MqttStatus::DnsError:return "DNS ERR";case MqttStatus::TcpError:return "TCP ERR";case MqttStatus::ProtocolError:return "PROTO ERR";case MqttStatus::ClientIdRejected:return "CLIENT ID";case MqttStatus::BrokerUnavailable:return "BROKER DOWN";case MqttStatus::BadCredentials:return "BAD USER/PASS";case MqttStatus::NotAuthorized:return "NOT AUTH";case MqttStatus::SubscribeError:return "SUB ERR";case MqttStatus::NetworkTimeout:return "NET TIMEOUT";case MqttStatus::ReadError:return "READ ERR";case MqttStatus::WriteError:return "WRITE ERR";case MqttStatus::PongTimeout:return "PONG TIMEOUT";case MqttStatus::PacketError:return "MQTT PACKET";case MqttStatus::BufferError:return "MQTT BUFFER";case MqttStatus::Error:return "MQTT ERR";default:return "CONNECT...";}}
