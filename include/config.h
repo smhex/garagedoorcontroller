@@ -44,6 +44,7 @@ extern String mqttFirstWillMsg;
 // for their initial values
 extern EthernetClient ethClient;
 extern int displayTimeout_ms;
+extern int displayCommandTimeout_ms;
 extern unsigned long uptime_in_secs;
 extern int ledBlinkDuration_ms;
 extern int commandDuration_ms;

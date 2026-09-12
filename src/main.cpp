@@ -39,6 +39,7 @@ int currentSystemInfoPage = PAGE_OVERVIEW;
 
 unsigned long prev_displayTimeout_ms = 0;
 bool displayIsOn = false;
+int displayTimeoutForCurrentActivation_ms = 30000;
 
 // Forward declarations
 void watchdog_init();
@@ -138,6 +139,7 @@ void setup()
   // show initial screen
   displayIsOn = true;
   prev_displayTimeout_ms = millis();
+  displayTimeoutForCurrentActivation_ms = displayTimeout_ms;
   hmi_display_off(displayIsOn);
   show_page_overview();
 
@@ -199,6 +201,7 @@ void loop()
     currentSystemInfoPage = PAGE_UPDATE;
     displayIsOn = true;
     prev_displayTimeout_ms = millis();
+    displayTimeoutForCurrentActivation_ms = displayTimeout_ms;
     if (!updateWasBusy) hmi_display_off(true);
     if (!updateWasBusy || !lan_update_busy() || millis() - lastUpdateFrame >= 250) {
       show_page_update();
@@ -241,6 +244,7 @@ void loop()
     lan_update_request_install(MQTT_COMMANDSOURCELOCAL);
     displayIsOn = true;
     prev_displayTimeout_ms = millis();
+    displayTimeoutForCurrentActivation_ms = displayTimeout_ms;
     hmi_display_off(true);
   }
   if (buttonPressed != HMI_BUTTON_NONE)
@@ -281,6 +285,7 @@ void loop()
       Debug.println(buffer);
       displayIsOn = true;
       prev_displayTimeout_ms = millis();
+      displayTimeoutForCurrentActivation_ms = displayTimeout_ms;
       hmi_display_off(displayIsOn);
     }
   }
@@ -308,7 +313,7 @@ void loop()
   if (displayIsOn)
   {
     show_systeminfo();
-    if (time_elapsed(millis(), prev_displayTimeout_ms, displayTimeout_ms))
+    if (time_elapsed(millis(), prev_displayTimeout_ms, displayTimeoutForCurrentActivation_ms))
     {
       displayIsOn = false;
       hmi_display_off(displayIsOn);
@@ -351,6 +356,11 @@ void command_door(int direction, String fromSource)
   }
   mqtt_note_door_command(fromSource);
   driveio_setdoorcommand(pulseDirection);
+  currentSystemInfoPage = PAGE_OVERVIEW;
+  displayIsOn = true;
+  prev_displayTimeout_ms = millis();
+  displayTimeoutForCurrentActivation_ms = displayCommandTimeout_ms;
+  hmi_display_off(displayIsOn);
 }
 
 void command_open(String fromSource)

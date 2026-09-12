@@ -49,6 +49,8 @@ String mqttFirstWillMsg = "online";
 
 // duration for OLED display in HMI module being active after button press
 int displayTimeout_ms = 30000;
+// duration for OLED display in HMI module being active after a door command
+int displayCommandTimeout_ms = 60000;
 
 // On/Off time in ms for the leds when door is moving
 int ledBlinkDuration_ms = 100;

@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.1.8 - 2026-09-12
+
+- Keep the OLED display active for 60 seconds after an accepted local or MQTT
+  door command, showing the overview page and the current door movement.
+
 ## 1.1.7 - 2026-09-11
 
 - Fix Ethernet initialization before the hardware check. Version 1.1.6 checked
